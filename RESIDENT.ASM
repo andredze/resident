@@ -24,7 +24,6 @@ Main proc
 
 	call GetStdKeyboardInterrupt
 	call SetKeyboardInterrupt
-	call Exit
 
 	ret
 
@@ -84,7 +83,7 @@ SetKeyboardInterrupt proc
 ;------------------------------------
 ; 	; DOS func 25h = set INT Vector
 ; 	; 09h = kb int number
-; 	mov ax, 2509h	
+; 	mov ax, 2509h
 ; 	; new func should be at ds:[dx]
 ; 	mov bx, cs
 ; 	mov ds, bx
