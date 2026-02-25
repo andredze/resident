@@ -5,6 +5,8 @@ org 100h
 
 locals @@
 
+;// FIXXXX!!!! перепутал i и d
+
 ; -------------------------------- CONSTANTS -------------------------------
 
 VIDEO_SEG		            equ 0b800h
@@ -43,16 +45,6 @@ RegisterValuesStruct struc
     SavedSsValue    dw 0
     SavedCsValue    dw 0
     SavedIpValue    dw 0
-; cpazstido
-    ; SavedCfValue    dw 0
-    ; SavedPfValue    dw 0
-    ; SavedAfValue    dw 0
-    ; SavedZfValue    dw 0
-    ; SavedSfValue    dw 0
-    ; SavedTfValue    dw 0
-    ; SavedIfValue    dw 0
-    ; SavedDfValue    dw 0
-    ; SavedOfValue    dw 0
     SavedFlagsValue dw 0
 RegisterValuesStruct ends
 
@@ -261,8 +253,6 @@ RegsDump proc
 
 RegsDump endp
 
-;------------------------------------
-; //FIXME flags
 ;--------------------------------------------------------------------------------
 ; Short:   -
 ; Exp:     -
@@ -309,9 +299,8 @@ StoreRegsValues proc
 ; store sp
     push ax
 
-    ; -4 for pushes in this func, -2 for call addr -2 for RegsDumpCall -9*2 for saved regs -6 for int call = -32
     mov ax, sp
-    add ax, MY_STACK_SHIFT + 6 - 2 ; посчитать сколько
+    add ax, MY_STACK_SHIFT + 6 - 2
     mov cs:[si + SavedSpValue], ax
 
     pop ax
@@ -352,15 +341,6 @@ StoreRegsValues proc
 
 StoreRegsValues endp
 
-;------------------------------------
-
-RegisterValues RegisterValuesStruct ?
-
-nop
-nop
-nop
-nop
-
 ;--------------------------------------------------------------------------------
 ; Short:   -
 ; Exp:     -
@@ -370,16 +350,14 @@ nop
 ;--------------------------------------------------------------------------------
 ; Flags are stored in flags reg:
 ; [-][-][-][-] [O][D][I][T] [S][Z][-][A] [-][P][-][C]
-; 3202h --> 0011 0010 0000 0010
-; 0C08h --> 0000 1100 1000 0000
 
-; //FIXME --> Little endian????!!!
 StoreFlagsValues proc
 
     xor ax, ax
 
     mov si, offset RegisterValues
 
+    ; ax = flags reg
     mov ax, [si + SavedFlagsValue]
 
     mov si, offset FlagsValues
@@ -389,11 +367,13 @@ StoreFlagsValues proc
 
 @@NextFlagSep:
 
+    ; get curr flag value from al lowest bit
     mov bl, al
     and bl, 01h
     mov byte ptr [si], bl
     inc si
 
+    ; move 2 because of reserved flag bit
     shr ax, 2
 
     loop @@NextFlagSep
@@ -403,6 +383,7 @@ StoreFlagsValues proc
 
 @@NextFlagCont:
 
+    ; get curr flag value from al lowest bit
     mov bl, al
     and bl, 01h
     mov byte ptr [si], bl
@@ -415,10 +396,6 @@ StoreFlagsValues proc
     ret
 
 StoreFlagsValues endp
-
-;------------------------------------
-
-FlagsValues FlagsStruct ?
 
 ;--------------------------------------------------------------------------------
 ; Short:   -
@@ -452,6 +429,7 @@ DrawRegs proc
 
     mov ax, [bp]
 	push si di
+    mov dx, 0d
     call DrawSingleReg
     pop di si
 
@@ -488,7 +466,8 @@ DrawFlags proc
 
     mov ax, [bp]
 	push si di
-    call DrawSingleFlag
+    mov dx, 3d
+    call DrawSingleReg
     pop di si
 
     ; newline
@@ -509,62 +488,7 @@ DrawFlags endp
 ; Short:   -
 ; Exp:     -
 ; In:      AX = reg value
-; Out:     -
-; Destroy: -
-;--------------------------------------------------------------------------------
-
-DrawSingleFlag proc
-
-    push ax
-
-	mov ah, YELLOW_ON_RED
-
-    push cx
-    call DrawData
-    pop cx
-;------------------------------------
-
-    mov bh, YELLOW_ON_RED
-
-    pop ax
-
-    push di bx ax
-    call DrawFlagValue
-    add sp, 6
-
-    ret
-
-DrawSingleFlag endp
-
-;------------------------------------
-
-DumpStartLines  db 'AX = $'
-                db 'BX = $'
-                db 'CX = $'
-                db 'DX = $'
-                db 'SI = $'
-                db 'DI = $'
-                db 'BP = $'
-                db 'SP = $'
-                db 'DS = $'
-                db 'ES = $'
-                db 'SS = $'
-                db 'CS = $'
-                db 'IP = $'
-                db 'c = $'
-                db 'p = $'
-                db 'a = $'
-                db 'z = $'
-                db 's = $'
-                db 't = $'
-                db 'd = $'
-                db 'i = $'
-                db 'o = $'
-
-;--------------------------------------------------------------------------------
-; Short:   -
-; Exp:     -
-; In:      AX = reg value
+;          DX = shift for IntValueStr
 ; Out:     -
 ; Destroy: -
 ;--------------------------------------------------------------------------------
@@ -585,9 +509,9 @@ DrawSingleReg proc
 
     pop ax
 
-    push di bx ax
+    push dx di bx ax
     call DrawRegValue
-    add sp, 6
+    add sp, 8
 
     ret
 
@@ -596,10 +520,13 @@ DrawSingleReg endp
 ;--------------------------------------------------------------------------------
 ; Short:   -
 ; Exp:     -
-; In:      push arguments in stack
-;          [0] = reg value              ([bp + 4])
-;          [1] = color in high byte     ([bp + 6])
-;          [2] = vram pos to write data ([bp + 8])
+; In:      push arguments in stack in order
+;          [0] = shift for IntValueStr  ([bp + 10])
+;                (to draw only a part of a word,
+;                 for drawing a bit --> shift = 3)
+;          [1] = vram pos to write data ([bp + 8])
+;          [2] = color in high byte     ([bp + 6])
+;          [3] = reg value              ([bp + 4])
 ; Out:     -
 ; Destroy: -
 ;--------------------------------------------------------------------------------
@@ -609,7 +536,7 @@ DrawRegValue proc
     push bp
     mov bp, sp
 
-    push ax bx cx si
+    push ax bx cx si di
 
     mov ax, [bp + 4]
 
@@ -619,56 +546,22 @@ DrawRegValue proc
     mov ds, bx
     mov si, offset IntValueStr
 
+    ; add shift for drawing only a part of a word
+    mov di, [bp + 10]
+    add si, di
+
     mov ax, [bp + 6]
     mov di, [bp + 8]
 
     call DrawData
 
-    pop si cx bx ax
+    pop di si cx bx ax
 
     pop bp
 
     ret
 
 DrawRegValue endp
-
-;--------------------------------------------------------------------------------
-; Short:   -
-; Exp:     -
-; In:      -
-; Out:     -
-; Destroy: -
-;--------------------------------------------------------------------------------
-
-DrawFlagValue proc
-
-    push bp
-    mov bp, sp
-
-    push ax bx cx si
-
-    mov ax, [bp + 4]
-
-    call ConvertIntToString
-
-    mov bx, cs
-    mov ds, bx
-    mov si, offset IntValueStr
-
-    add si, 3
-
-    mov ax, [bp + 6]
-    mov di, [bp + 8]
-
-    call DrawData
-
-    pop si cx bx ax
-
-    pop bp
-
-    ret
-
-DrawFlagValue endp
 
 ;--------------------------------------------------------------------------------
 ; Short:   Converts integer (register value) into string in data at IntValueStr
@@ -698,8 +591,6 @@ ConvertIntToString proc
     ret
 
 ConvertIntToString endp
-
-IntValueStr db ?, ?, ?, ?, '$'
 
 ;--------------------------------------------------------------------------------
 ; Short:   Converts 1 byte in ascii str in hex and stores in data
@@ -824,6 +715,39 @@ Exit proc
 	ret
 
 Exit endp
+
+;--------------------------------------------------------------------------------
+
+; ---------------------------------- DATA ----------------------------------
+
+IntValueStr db ?, ?, ?, ?, '$'
+
+RegisterValues RegisterValuesStruct ?
+
+FlagsValues FlagsStruct ?
+
+DumpStartLines  db 'AX = $'
+                db 'BX = $'
+                db 'CX = $'
+                db 'DX = $'
+                db 'SI = $'
+                db 'DI = $'
+                db 'BP = $'
+                db 'SP = $'
+                db 'DS = $'
+                db 'ES = $'
+                db 'SS = $'
+                db 'CS = $'
+                db 'IP = $'
+                db 'c = $'
+                db 'p = $'
+                db 'a = $'
+                db 'z = $'
+                db 's = $'
+                db 't = $'
+                db 'i = $'
+                db 'd = $'
+                db 'o = $'
 
 ;--------------------------------------------------------------------------------
 
