@@ -22,8 +22,10 @@ END_STR                     equ '$'
 ZERO_ASCII_CODE             equ 48d
 BIG_A_ASCII_CODE            equ 65d
 
-REGS_DUMP_ITERS             equ 22d
+REGS_DUMP_ITERS             equ 13d
+FLAGS_DUMP_ITERS            equ 9d
 REGS_DUMP_LINE_START_LEN    equ 6d
+FLAGS_DUMP_LINE_START_LEN   equ 5d
 
 ; ------------------------------- DATA TYPES -------------------------------
 
@@ -41,17 +43,30 @@ RegisterValuesStruct struc
     SavedSsValue    dw 0
     SavedCsValue    dw 0
     SavedIpValue    dw 0
-    SavedCfValue    dw 0
-    SavedZfValue    dw 0
-    SavedSfValue    dw 0
-    SavedOfValue    dw 0
-    SavedPfValue    dw 0
-    SavedAfValue    dw 0
-    SavedIfValue    dw 0
-    SavedDfValue    dw 0
-    SavedTfValue    dw 0
+; cpazstido
+    ; SavedCfValue    dw 0
+    ; SavedPfValue    dw 0
+    ; SavedAfValue    dw 0
+    ; SavedZfValue    dw 0
+    ; SavedSfValue    dw 0
+    ; SavedTfValue    dw 0
+    ; SavedIfValue    dw 0
+    ; SavedDfValue    dw 0
+    ; SavedOfValue    dw 0
     SavedFlagsValue dw 0
 RegisterValuesStruct ends
+
+FlagsStruct struc
+    FS_CF db 0
+    FS_PF db 0
+    FS_AF db 0
+    FS_ZF db 0
+    FS_SF db 0
+    FS_TF db 0
+    FS_IF db 0
+    FS_DF db 0
+    FS_OF db 0
+FlagsStruct ends
 
 ; ---------------------------------- CODE ----------------------------------
 ; //TODO: --> flags in different struct + function DrawFlags
@@ -64,7 +79,7 @@ Start:
 
     ; call RegsDump
 	call Main
-    ; int 09h
+    int 09h
 
 	call Exit
 
@@ -156,8 +171,8 @@ MyKeyboardInterrupt proc
     ; 60h = KB port for pressed key scan code
 	in al, 60h
 
-    cmp al, TILDA_SCAN_CODE
-    jne @@CleanUpEnd
+    ; cmp al, TILDA_SCAN_CODE
+    ; jne @@CleanUpEnd
 
 	pop ax
 
@@ -165,8 +180,8 @@ MyKeyboardInterrupt proc
 
     jmp @@End
 
-@@CleanUpEnd:
-    pop ax
+; @@CleanUpEnd:
+;     pop ax
 
 @@End:
     call ResetController
@@ -239,6 +254,8 @@ RegsDump proc
     call StoreFlagsValues
 
     call DrawRegs
+
+    call DrawFlags
 
     ret
 
@@ -339,6 +356,11 @@ StoreRegsValues endp
 
 RegisterValues RegisterValuesStruct ?
 
+nop
+nop
+nop
+nop
+
 ;--------------------------------------------------------------------------------
 ; Short:   -
 ; Exp:     -
@@ -347,72 +369,56 @@ RegisterValues RegisterValuesStruct ?
 ; Destroy: -
 ;--------------------------------------------------------------------------------
 ; Flags are stored in flags reg:
-; [-][-][-][-][O][D][I][T][S][Z][-][A][-][P][-][C]
+; [-][-][-][-] [O][D][I][T] [S][Z][-][A] [-][P][-][C]
+; 3202h --> 0011 0010 0000 0010
+; 0C08h --> 0000 1100 1000 0000
 
+; //FIXME --> Little endian????!!!
 StoreFlagsValues proc
 
     xor ax, ax
 
+    mov si, offset RegisterValues
+
     mov ax, [si + SavedFlagsValue]
 
-    mov bx, ax
-    and bx, 01h
+    mov si, offset FlagsValues
 
-    mov [si + SavedCfValue], bx
+; when they are separated with 1 value
+    mov cx, 3
+
+@@NextFlagSep:
+
+    mov bl, al
+    and bl, 01h
+    mov byte ptr [si], bl
+    inc si
 
     shr ax, 2
-    mov bx, ax
-    and bx, 01h
 
-    mov [si + SavedPfValue], bx
+    loop @@NextFlagSep
 
-    shr ax, 2
-    mov bx, ax
-    and bx, 01h
+; when they are stored continuously
+    mov cx, 6
 
-    mov [si + SavedAfValue], bx
+@@NextFlagCont:
 
-    shr ax, 1
-    mov bx, ax
-    and bx, 01h
-
-    mov [si + SavedZfValue], bx
+    mov bl, al
+    and bl, 01h
+    mov byte ptr [si], bl
+    inc si
 
     shr ax, 1
-    mov bx, ax
-    and bx, 01h
 
-    mov [si + SavedSfValue], bx
-
-    shr ax, 1
-    mov bx, ax
-    and bx, 01h
-
-    mov [si + SavedTfValue], bx
-
-    shr ax, 1
-    mov bx, ax
-    and bx, 01h
-
-    mov [si + SavedIfValue], bx
-
-    shr ax, 1
-    mov bx, ax
-    and bx, 01h
-
-    mov [si + SavedDfValue], bx
-
-    shr ax, 1
-    mov bx, ax
-    and bx, 01h
-
-    mov [si + SavedOfValue], bx
-
-; //TODO: IOPL (12-13 bits)????
+    loop @@NextFlagCont
 
     ret
 
 StoreFlagsValues endp
+
+;------------------------------------
+
+FlagsValues FlagsStruct ?
 
 ;--------------------------------------------------------------------------------
 ; Short:   -
@@ -423,6 +429,9 @@ StoreFlagsValues endp
 ;--------------------------------------------------------------------------------
 
 DrawRegs proc
+
+    ; set df = 0 in case it's 1
+    cld
 
     call InitVram
 
@@ -454,10 +463,78 @@ DrawRegs proc
     add bp, 2
 
     loop @@NextReg
+;------------------------------------
 
     ret
 
 DrawRegs endp
+
+;--------------------------------------------------------------------------------
+; Short:   -
+; Exp:     -
+; In:      -
+; Out:     -
+; Destroy: -
+;--------------------------------------------------------------------------------
+
+DrawFlags proc
+
+    mov cx, FLAGS_DUMP_ITERS
+
+    mov bp, offset FlagsValues
+
+;------------------------------------
+@@NextFlag:
+
+    mov ax, [bp]
+	push si di
+    call DrawSingleFlag
+    pop di si
+
+    ; newline
+    add di, (SCREEN_WIDTH * 2)
+    add si, FLAGS_DUMP_LINE_START_LEN
+
+    ; to get next flag from memory
+    add bp, 1
+
+    loop @@NextFlag
+;------------------------------------
+
+    ret
+
+DrawFlags endp
+
+;--------------------------------------------------------------------------------
+; Short:   -
+; Exp:     -
+; In:      AX = reg value
+; Out:     -
+; Destroy: -
+;--------------------------------------------------------------------------------
+
+DrawSingleFlag proc
+
+    push ax
+
+	mov ah, YELLOW_ON_RED
+
+    push cx
+    call DrawData
+    pop cx
+;------------------------------------
+
+    mov bh, YELLOW_ON_RED
+
+    pop ax
+
+    push di bx ax
+    call DrawFlagValue
+    add sp, 6
+
+    ret
+
+DrawSingleFlag endp
 
 ;------------------------------------
 
@@ -474,15 +551,15 @@ DumpStartLines  db 'AX = $'
                 db 'SS = $'
                 db 'CS = $'
                 db 'IP = $'
-                db 'cf = $'
-                db 'zf = $'
-                db 'sf = $'
-                db 'of = $'
-                db 'pf = $'
-                db 'af = $'
-                db 'if = $'
-                db 'df = $'
-                db 'tf = $'
+                db 'c = $'
+                db 'p = $'
+                db 'a = $'
+                db 'z = $'
+                db 's = $'
+                db 't = $'
+                db 'd = $'
+                db 'i = $'
+                db 'o = $'
 
 ;--------------------------------------------------------------------------------
 ; Short:   -
@@ -554,6 +631,44 @@ DrawRegValue proc
     ret
 
 DrawRegValue endp
+
+;--------------------------------------------------------------------------------
+; Short:   -
+; Exp:     -
+; In:      -
+; Out:     -
+; Destroy: -
+;--------------------------------------------------------------------------------
+
+DrawFlagValue proc
+
+    push bp
+    mov bp, sp
+
+    push ax bx cx si
+
+    mov ax, [bp + 4]
+
+    call ConvertIntToString
+
+    mov bx, cs
+    mov ds, bx
+    mov si, offset IntValueStr
+
+    add si, 3
+
+    mov ax, [bp + 6]
+    mov di, [bp + 8]
+
+    call DrawData
+
+    pop si cx bx ax
+
+    pop bp
+
+    ret
+
+DrawFlagValue endp
 
 ;--------------------------------------------------------------------------------
 ; Short:   Converts integer (register value) into string in data at IntValueStr
