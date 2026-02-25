@@ -71,7 +71,8 @@ Start:
 
     ; call RegsDump
 	call Main
-    int 09h
+    ; int 09h
+    ; int 09h
 
 	call Exit
 
@@ -155,7 +156,7 @@ MyKeyboardInterrupt proc
 
 	; int shouldn't destroy
     pushf
-	push ax bx cx di si bp sp es
+	push ax bx cx dx di si bp sp es ds
 
 	push ax
 
@@ -178,7 +179,7 @@ MyKeyboardInterrupt proc
 @@End:
     call ResetController
 
-	pop es sp bp si di cx bx ax
+	pop ds es sp bp si di dx cx bx ax
     popf
 
 	; jmp (0eah) StdKbIntSegment : StdKbIntIndex
@@ -265,9 +266,9 @@ RegsDump endp
 ; + 2 for StoreRegsValues call addr
 ; + 6 for pushes in StoreRegsValues
 ; + 2 for RegsDumpCall call addr
-; + 9 * 2 for saved regs in MyKeyboardInterrupt
-; = 28
-MY_STACK_SHIFT equ 28
+; + 11 * 2 for saved regs in MyKeyboardInterrupt
+; = 32
+MY_STACK_SHIFT equ 32
 ;------------------------------------
 
 StoreRegsValues proc
