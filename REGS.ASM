@@ -5,8 +5,6 @@ org 100h
 
 locals @@
 
-;// FIXXXX!!!! перепутал i и d
-
 ; -------------------------------- CONSTANTS -------------------------------
 
 VIDEO_SEG		            equ 0b800h
@@ -109,10 +107,10 @@ GetStdKeyboardInterrupt proc
 	mov bx, 4 * 09h
 
 	mov ax, es:[bx]
-	mov [StdKeyboardInterruptIndex], ax
+	mov cs:[StdKeyboardInterruptIndex], ax
 
 	mov ax, es:[bx + 2]
-	mov [StdKeyboardInterruptSegment], ax
+	mov cs:[StdKeyboardInterruptSegment], ax
 
 	ret
 
@@ -164,8 +162,8 @@ MyKeyboardInterrupt proc
     ; 60h = KB port for pressed key scan code
 	in al, 60h
 
-    ; cmp al, TILDA_SCAN_CODE
-    ; jne @@CleanUpEnd
+    cmp al, TILDA_SCAN_CODE
+    jne @@CleanUpEnd
 
 	pop ax
 
@@ -173,8 +171,8 @@ MyKeyboardInterrupt proc
 
     jmp @@End
 
-; @@CleanUpEnd:
-;     pop ax
+@@CleanUpEnd:
+    pop ax
 
 @@End:
     call ResetController
@@ -285,13 +283,13 @@ StoreRegsValues proc
     mov bp, sp
 
     ; in int call there were: pushf --> push cs --> push ip
-    mov ax, [bp + MY_STACK_SHIFT]
+    mov ax, ss:[bp + MY_STACK_SHIFT]
     mov cs:[si + SavedIpValue], ax
 
-    mov ax, [bp + MY_STACK_SHIFT + 2]
+    mov ax, ss:[bp + MY_STACK_SHIFT + 2]
     mov cs:[si + SavedCsValue], ax
 
-    mov ax, [bp + MY_STACK_SHIFT + 4]
+    mov ax, ss:[bp + MY_STACK_SHIFT + 4]
     mov cs:[si + SavedFlagsValue], ax
 
     pop bp ax
@@ -312,31 +310,31 @@ StoreRegsValues proc
     push ax
 
     mov ax, ds
-    mov [si + SavedDsValue], ax
+    mov cs:[si + SavedDsValue], ax
 
     mov ax, es
-    mov [si + SavedEsValue], ax
+    mov cs:[si + SavedEsValue], ax
 
     mov ax, ss
-    mov [si + SavedSsValue], ax
+    mov cs:[si + SavedSsValue], ax
 
     pop ax
 
 ;------------------------------------
 ; store default registers
 
-    mov [si + SavedAxValue], ax
-    mov [si + SavedBxValue], bx
-    mov [si + SavedCxValue], cx
-    mov [si + SavedDxValue], dx
-    mov [si + SavedDiValue], di
-    mov [si + SavedBpValue], bp
+    mov cs:[si + SavedAxValue], ax
+    mov cs:[si + SavedBxValue], bx
+    mov cs:[si + SavedCxValue], cx
+    mov cs:[si + SavedDxValue], dx
+    mov cs:[si + SavedDiValue], di
+    mov cs:[si + SavedBpValue], bp
 
 ; store si value (was used for indexing)
 
     mov di, si
     pop si
-    mov [di + SavedSiValue], si
+    mov cs:[di + SavedSiValue], si
 
     ret
 
@@ -359,7 +357,7 @@ StoreFlagsValues proc
     mov si, offset RegisterValues
 
     ; ax = flags reg
-    mov ax, [si + SavedFlagsValue]
+    mov ax, cs:[si + SavedFlagsValue]
 
     mov si, offset FlagsValues
 
@@ -371,7 +369,7 @@ StoreFlagsValues proc
     ; get curr flag value from al lowest bit
     mov bl, al
     and bl, 01h
-    mov byte ptr [si], bl
+    mov byte ptr cs:[si], bl
     inc si
 
     ; move 2 because of reserved flag bit
@@ -387,7 +385,7 @@ StoreFlagsValues proc
     ; get curr flag value from al lowest bit
     mov bl, al
     and bl, 01h
-    mov byte ptr [si], bl
+    mov byte ptr cs:[si], bl
     inc si
 
     shr ax, 1
@@ -428,7 +426,7 @@ DrawRegs proc
 ;------------------------------------
 @@NextReg:
 
-    mov ax, [bp]
+    mov ax, cs:[bp]
 	push si di
     mov dx, 0d
     call DrawSingleReg
@@ -465,7 +463,7 @@ DrawFlags proc
 ;------------------------------------
 @@NextFlag:
 
-    mov ax, [bp]
+    mov ax, cs:[bp]
 	push si di
     mov dx, 3d
     call DrawSingleReg
@@ -539,7 +537,7 @@ DrawRegValue proc
 
     push ax bx cx si di
 
-    mov ax, [bp + 4]
+    mov ax, ss:[bp + 4]
 
     call ConvertIntToString
 
@@ -548,11 +546,11 @@ DrawRegValue proc
     mov si, offset IntValueStr
 
     ; add shift for drawing only a part of a word
-    mov di, [bp + 10]
+    mov di, ss:[bp + 10]
     add si, di
 
-    mov ax, [bp + 6]
-    mov di, [bp + 8]
+    mov ax, ss:[bp + 6]
+    mov di, ss:[bp + 8]
 
     call DrawData
 
@@ -678,7 +676,7 @@ DrawData proc
     mov cx, MAX_ITERS
 
     @@Next:
-        mov byte ptr al, [si]
+        mov byte ptr al, cs:[si]
 
         cmp al, END_STR
         je @@End
