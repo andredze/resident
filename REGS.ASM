@@ -9,6 +9,8 @@ locals @@
 
 VIDEO_SEG		            equ 0b800h
 SCREEN_WIDTH	            equ 80d
+SCREEN_HEIGHT               equ 25d
+SCREEN_SIZE                 equ SCREEN_WIDTH * SCREEN_HEIGHT
 
 YELLOW_ON_RED	            equ 4eh
 RED_ON_BLACK 	            equ 04h
@@ -32,6 +34,9 @@ FLAGS_DUMP_LINE_START_LEN   equ 5d
 
 FRAME_HEIGHT                equ 15d
 FRAME_WIDTH                 equ 19d
+FRAME_SIZE                  equ FRAME_WIDTH * FRAME_HEIGHT
+
+VIDEO_FRAME_POS             equ (SCREEN_WIDTH * 1 + SCREEN_WIDTH / 2 - 4 - 2) * 2
 
 HORIZ_LINE                  equ 0cdh
 VERT_LINE                   equ 0bah
@@ -117,6 +122,9 @@ DumpStartLines      db 'AX = $', 'BX = $', 'CX = $', 'DX = $'
                     db 'c = $', 'p = $', 'a = $', 'z = $'
                     db 's = $', 't = $', 'i = $', 'd = $'
                     db 'o = $'
+
+DrawBuffer          dw SCREEN_SIZE DUP(0)
+SaveBuffer          dw SCREEN_SIZE DUP(0)
 
 ; ---------------------------------- CODE ----------------------------------
 
@@ -240,7 +248,7 @@ MyTimerInterrupt proc
 	; int shouldn't destroy
 	push ax bx cx dx di si bp es ds
 
-    call RegsDump
+    call MakeTimerIteration
 
 	pop ds es bp si di dx cx bx ax
 
@@ -254,6 +262,81 @@ MyTimerInterrupt endp
 ; so it jumps to the old keyboard interrupt
 StdTimerInterruptIndex	    dw ?
 StdTimerInterruptSegment	dw ?
+
+;--------------------------------------------------------------------------------
+; Short:   Refreshes DrawBuffer and SaveBuffer if needed,
+;          draws frame with regs in DrawBuffer and vram
+; Destroy: AX, BX, CX, DX, SI, DI, BP, DS, ES
+;--------------------------------------------------------------------------------
+
+MakeTimerIteration proc
+
+    push ax bx cx dx di si es ds
+    call CompareAndRestoreBuffers
+    pop ds es si di dx cx bx ax
+
+    ; draw frame with regs in DrawBuffer
+    call RegsDump
+
+    ; copy DrawBuffer in vram
+    mov si, offset DrawBuffer
+    call CopyBufferToVram
+
+    ret
+
+MakeTimerIteration endp
+
+;--------------------------------------------------------------------------------
+; Short:   Compares DrawBuffer with vram, if not equal -->
+;          Places byte from vram to DrawBuffer and SaveBuffer
+; Destroy: AX, BX, CX, DX, SI, DI, DS, ES
+;--------------------------------------------------------------------------------
+
+CompareAndRestoreBuffers proc
+    ; compare DrawBuffer and vram --> if not equal:
+    ; than copy new vram symbol to SafeBuffer and DrawBuffer
+
+    ; ES:[DI] --> Vram
+    xor di, di
+    mov ax, VIDEO_SEG
+    mov es, ax
+
+    ; DS:[SI] --> DrawBuffer
+    mov si, offset DrawBuffer
+    mov ax, cs
+    mov ds, ax
+
+    ; DS:[BX] --> SaveBuffer
+    mov bx, offset SaveBuffer
+
+    mov cx, SCREEN_SIZE
+
+    @@Next:
+        ; ax = symbol in DrawBuffer
+        mov ax, ds:[si]
+        ; dx = symbol in vram
+        mov dx, es:[di]
+
+        cmp ax, dx
+        je @@IsEqual
+
+        ; if not equal --> place symbol from vram to DrawBuffer and SaveBuffer
+        ; DrawBuffer
+        mov ds:[si], dx
+        ; SaveBuffer
+        mov ds:[bx], dx
+
+        @@IsEqual:
+
+        add si, 2
+        add bx, 2
+        add di, 2
+
+    loop @@Next
+
+    ret
+
+CompareAndRestoreBuffers endp
 
 ;--------------------------------------------------------------------------------
 ; Short:   Sets variables for index and segment of
@@ -316,13 +399,14 @@ SetMyKeyboardInterrupt endp
 ;          If it was already ser --> jumps to a normal int 08h call
 ; In:      mode = 00h --> stop timer
 ;               = 01h --> start timer
-;          set_timer_interrupt = function that sets int 08h to a new one
+;          func_call = function that handles timer change and
+;                      sets int 08h to a new one
 ; Destroy: SI
 ;--------------------------------------------------------------------------------
 ; Note: comments are written for the mode --> start timer (01h)
 ;--------------------------------------------------------------------------------
 
-mHandleTimerChange macro mode, set_timer_interrupt
+mHandleTimerChange macro mode, func_call
 
     ; if curr mode was already set:
     ; if TimerInterruptIsActive == mode --> do nothing
@@ -338,7 +422,7 @@ mHandleTimerChange macro mode, set_timer_interrupt
     ; set TimerInterrupt 08h to a needed one
     ; mode 00h --> set to the default timer int
     ; mode 01h --> set to my timer int
-    call set_timer_interrupt
+    call func_call
 
     endm
 
@@ -349,7 +433,9 @@ mHandleTimerChange macro mode, set_timer_interrupt
 MyKeyboardInterrupt proc
 
 	; int shouldn't destroy
-    push ax bx si es
+    push ax bx cx dx si di bp ds es
+
+    push ax
 
 	; get scan-code of kb input
     ; 60h = KB port for pressed key scan code
@@ -361,19 +447,28 @@ MyKeyboardInterrupt proc
     cmp al, ESC_SCAN_CODE
     je @@HandleStopTimer
 
+    pop ax
+
     jmp @@NormalKeyboardInterrupt
 
 @@HandleStartTimer:
-    mHandleTimerChange 01h, SetMyTimerInterrupt
+
+    pop ax
+
+    mHandleTimerChange 01h, InitBuffersAndVram
+
     jmp @@End
 
 @@HandleStopTimer:
-    mHandleTimerChange 00h, SetDefaultTimerInterrupt
+
+    pop ax
+
+    mHandleTimerChange 00h, ClearScreenAndReset
 
 @@End:
     call ResetController
 
-    pop es si bx ax
+    pop es ds bp di si dx cx bx ax
 
     ; if pressed hotkey --> don't call default int 09h
     ; iret = popf + jmp far
@@ -381,7 +476,7 @@ MyKeyboardInterrupt proc
 
 @@NormalKeyboardInterrupt:
 
-	pop es si bx ax
+    pop es ds bp di si dx cx bx ax
 
 	; jmp (0eah) StdKbIntSegment : StdKbIntIndex
 	; in reverse cause of Little-Endian
@@ -393,6 +488,142 @@ MyKeyboardInterrupt endp
 ; so it jumps to the old keyboard interrupt
 StdKeyboardInterruptIndex	dw ?
 StdKeyboardInterruptSegment	dw ?
+
+;--------------------------------------------------------------------------------
+; Short:   Makes first timer iteration and starts timer:
+;          1) Saves screen in SaveBuffer
+;          2) Draws frame in DrawBuffer
+;          3) Copies DrawBuffer to vram
+;          4) Sets MyTimerInterrupt
+; Destroy: AX, BX, CX, DX, SI, DI, BP, ES, DS
+;--------------------------------------------------------------------------------
+
+InitBuffersAndVram proc
+
+    push ax cx dx si di
+    ; copy vram in SaveBuffer
+    mov di, offset SaveBuffer
+    call CopyVramToBuffer
+
+    ; copy vram in DrawBuffer
+    mov di, offset DrawBuffer
+    call CopyVramToBuffer
+
+    pop di si dx cx ax
+    ; draw frame with regs in DrawBuffer
+    call RegsDump
+
+    ; copy DrawBuffer in vram
+    mov si, offset DrawBuffer
+    call CopyBufferToVram
+
+    ; set TimerInterrupt 08h to regs dump
+    call SetMyTimerInterrupt
+
+    ret
+
+InitBuffersAndVram endp
+
+;--------------------------------------------------------------------------------
+; Short:   Clears screen (moves SaveBuffer to vram) and sets default int 08h
+; Destroy: AX, BX, SI
+;--------------------------------------------------------------------------------
+
+ClearScreenAndReset proc
+
+    ; copy SaveBuffer in vram
+    mov si, offset SaveBuffer
+    call CopyBufferToVram
+
+    call SetDefaultTimerInterrupt
+
+    ret
+
+ClearScreenAndReset endp
+
+;--------------------------------------------------------------------------------
+; Short:   Copies buffer to the vram
+; In:      CS:[SI] --> screen buffer
+; Out:     ES:[00] --> copy of the screen buffer
+; Destroy: AX, CX, DX, SI, DI
+;--------------------------------------------------------------------------------
+
+CopyBufferToVram proc
+
+    push ds es
+
+    ; ES = VIDEO_SEG
+    mov ax, VIDEO_SEG
+    mov es, ax
+
+    ; DS = CS
+    mov ax, cs
+    mov ds, ax
+
+    ; SI --> Buffer
+
+    mov cx, (SCREEN_WIDTH * SCREEN_HEIGHT)
+    ; copy buffer to the vram
+
+    ; di = 0 (start of the vram)
+    xor di, di
+
+    cld
+
+    @@Next:
+    ; ax = ds:[si+=2]
+    ; es:[di+=2] = ax
+        lodsw
+        stosw
+
+    loop @@Next
+
+    pop es ds
+
+    ret
+
+CopyBufferToVram endp
+
+;--------------------------------------------------------------------------------
+; Short:   Copies vram to the buffer
+; In:      CS:[DI] --> screen buffer
+; Destroy: AX, CX, SI, DI
+;--------------------------------------------------------------------------------
+
+CopyVramToBuffer proc
+
+    push ds es
+
+    ; DS = VIDEO_SEG
+    mov ax, VIDEO_SEG
+    mov ds, ax
+
+    ; ES = CS
+    mov ax, cs
+    mov es, ax
+
+    ; DI --> Buffer
+
+    mov cx, (SCREEN_WIDTH * SCREEN_HEIGHT)
+    ; copy buffer to the vram
+
+    ; si = 0 (start of vram)
+    xor si, si
+
+    cld
+
+    @@Next:
+    ; ax = ds:[si+=2]
+    ; es:[di+=2] = ax
+        lodsw
+        stosw
+    loop @@Next
+
+    pop es ds
+
+    ret
+
+CopyVramToBuffer endp
 
 ;--------------------------------------------------------------------------------
 ; Short:   Resets Keyboard Controller and sends an EOI to an Int Controller
@@ -441,7 +672,8 @@ RegsDump proc
 
     ; DI = start position in vram for frame
     ; 2 lines and 2 symbols before draw regs
-    mov di, (SCREEN_WIDTH * 1 + SCREEN_WIDTH / 2 - 4 - 2) * 2
+    mov di, offset DrawBuffer
+    add di, VIDEO_FRAME_POS
 
     push di
     call DrawFrame
@@ -464,9 +696,10 @@ RegsDump endp
 ;------------------------------------
 ; + 2 for StoreRegsValues call addr
 ; + 2 for RegsDumpCall call addr
-; + 9 * 2 for saved regs in MyKeyboardInterrupt
+; + 2 for func call addr
+; + 10 * 2 for saved regs in MyKeyboardInterrupt
 ; = 24
-MY_STACK_SHIFT equ 22
+MY_STACK_SHIFT equ 24
 ;------------------------------------
 
 StoreRegsValues proc
@@ -602,8 +835,8 @@ DrawRegsDumpData proc
     ; set df = 0 in case it's 1
     cld
 
-    ; ES = Video segment
-	mov ax, VIDEO_SEG
+    ; ES = CS
+	mov ax, cs
 	mov es, ax
 
 	; ds = cs (data is stored in code segment)
@@ -618,13 +851,15 @@ DrawRegsDumpData proc
 
     ; DI = start position in vram for regs dump
     ; -4 for centering
-	mov di, (SCREEN_WIDTH * 2 + SCREEN_WIDTH / 2 - 4) * 2
+    mov di, offset DrawBuffer
+    add di, (SCREEN_WIDTH * 2 + SCREEN_WIDTH / 2 - 4) * 2
 
     call DrawRegs
 
     ; DI = start position in vram for flags dump
     ; + 6 for skipping registers
-    mov di, (SCREEN_WIDTH * 2 + SCREEN_WIDTH / 2 + 6) * 2
+    mov di, offset DrawBuffer
+    add di, (SCREEN_WIDTH * 2 + SCREEN_WIDTH / 2 + 6) * 2
 
     call DrawFlags
 
