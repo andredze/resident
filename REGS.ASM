@@ -11,7 +11,7 @@ VIDEO_SEG		            equ 0b800h
 SCREEN_WIDTH	            equ 80d
 
 YELLOW_ON_RED	            equ 4eh
-RED_ON_GRAY 	            equ 74h
+RED_ON_BLACK 	            equ 04h
 
 JMP_BYTECODE                equ 0eah
 
@@ -29,7 +29,33 @@ FLAGS_DUMP_ITERS            equ 9d
 REGS_DUMP_LINE_START_LEN    equ 6d
 FLAGS_DUMP_LINE_START_LEN   equ 5d
 
+FRAME_HEIGHT                equ 14d
+FRAME_WIDTH                 equ 19d
+
+HORIZ_LINE                  equ 0cdh
+VERT_LINE                   equ 0bah
+LU_CORNER                   equ 0c9h
+RU_CORNER                   equ 0bbh
+LD_CORNER                   equ 0c8h
+RD_CORNER                   equ 0bch
+GRAY_BG                     equ 70h
+BRT_RED                     equ 0ch
+ZERO_BG_COLOR               equ 0afh
+
 ; ------------------------------- DATA TYPES -------------------------------
+
+FrameStyle struc
+    TextColor    dw ?
+    BGColor      dw ?
+    LUCorner     dw ?
+    UHorizLine   dw ?
+    RUCorner     dw ?
+    LVertLine    dw ?
+    RVertLine    dw ?
+    LDCorner     dw ?
+    DHorizLine   dw ?
+    RDCorner     dw ?
+FrameStyle ends
 
 RegistersStruct struc
     regAX    dw 0
@@ -63,8 +89,8 @@ FlagsStruct ends
 ; --------------------------------- START ----------------------------------
 ; //TODO: --> rewrite drawX + make it on registers and with arguments
 ; function clear screen on different scan code
+; int for timer
 ; savebuffer and drawbuffer
-; documentation + no copy paste
 ; add DrawFrame (maybe through inc)
 ; in frame add symbols from terminal
 ; //TODO: README
@@ -75,19 +101,21 @@ Start:
 
 ; ---------------------------------- DATA ----------------------------------
 
-IntValueStr     db '0000$'
+RegsDumpIsActive    db 0
 
-RegisterValues  RegistersStruct ?
-FlagsValues     FlagsStruct ?
+IntValueStr         db '0000$'
 
-DumpStartLines  db 'AX = $', 'BX = $', 'CX = $', 'DX = $'
-                db 'SI = $', 'DI = $', 'BP = $', 'SP = $'
-                db 'DS = $', 'ES = $', 'SS = $', 'CS = $'
-                db 'IP = $'
+RegisterValues      RegistersStruct ?
+FlagsValues         FlagsStruct ?
 
-                db 'c = $', 'p = $', 'a = $', 'z = $'
-                db 's = $', 't = $', 'i = $', 'd = $'
-                db 'o = $'
+DumpStartLines      db 'AX = $', 'BX = $', 'CX = $', 'DX = $'
+                    db 'SI = $', 'DI = $', 'BP = $', 'SP = $'
+                    db 'DS = $', 'ES = $', 'SS = $', 'CS = $'
+                    db 'IP = $'
+
+                    db 'c = $', 'p = $', 'a = $', 'z = $'
+                    db 's = $', 't = $', 'i = $', 'd = $'
+                    db 'o = $'
 
 ; ---------------------------------- CODE ----------------------------------
 
@@ -251,7 +279,7 @@ RegsDump proc
     mov si, offset DumpStartLines
 
     ; set color for regs dump
-    mov ah, RED_ON_GRAY
+    mov ah, RED_ON_BLACK
 
     ; DI = start position in vram for regs dump
     ; -4 for centering
@@ -264,6 +292,23 @@ RegsDump proc
     mov di, (SCREEN_WIDTH * 2 + SCREEN_WIDTH / 2 + 6) * 2
 
     call DrawFlags
+
+    ; DS:[SI] --> frame style
+    mov si, offset RegsFrameStyle
+
+    mov dx, FRAME_HEIGHT
+    mov bx, FRAME_WIDTH
+
+    ; DI = start position in vram for frame
+    ; 2 lines and 2 symbols before draw regs
+    mov di, (SCREEN_WIDTH * 1 + SCREEN_WIDTH / 2 - 4 - 2) * 2
+
+    push di
+    call DrawFrame
+    pop di
+
+    mov ax, [si + BGColor]
+    call DrawFrameBackground
 
     ret
 
@@ -701,6 +746,199 @@ DrawData proc
     ret
 
 DrawData endp
+
+;================================================================================
+; ------------------------------- FRAME_CODE -------------------------------
+;================================================================================
+; Short:   Draws a centered const size frame
+; Exp:     DF = 0
+; In:      SI --> frame style format
+;          DX = frame height
+;          BX = frame width
+;          DI = position of left upper corner of a frame
+; Out:     -
+; Destroy: AX, CX, DI
+;--------------------------------------------------------------------------------
+
+DrawFrame proc
+
+    ; save lu corner pos in stack
+    push di
+
+    ; Draw Left Upper corner
+    mov ax, [si + LuCorner]
+    stosw
+
+    ; AX = upper horizontal line symbol
+    mov ax, [si + UHorizLine]
+    call DrawHorizontalLine
+
+    ; Draw Right Upper corner
+    mov ax, [si + RuCorner]
+    stosw
+
+    push si
+
+    ; move back to the left side
+    ; -FRAME_WIDTH * 2
+    mov si, bx
+    shl si, 1
+    sub di, si
+
+    ; and go to newline to skip corner
+    add di, (SCREEN_WIDTH * 2)
+
+    pop si
+
+    ; AX = left vertical line symbol
+    mov ax, [si + LVertLine]
+    call DrawVerticalLine
+
+    ; Draw Left Down corner
+    mov ax, [si + LdCorner]
+    stosw
+
+    ; AX = down horizontal line symbol
+    mov ax, [si + DHorizLine]
+    call DrawHorizontalLine
+
+    ; Draw Right Down corner
+    mov ax, [si + RdCorner]
+    stosw
+
+    ; get lu corner pos
+    pop di
+
+    ; move up below the right corner
+    push bx
+
+    ; bx = shift
+    ; di = lu_corner_pos + (2 * (FRAME_WIDTH + SCREEN_WIDTH - 1))
+    add bx, (SCREEN_WIDTH - 1)
+    shl bx, 1
+    add di, bx
+
+    pop bx
+
+    ; AX = right vertical line symbol
+    mov ax, [si + RVertLine]
+    call DrawVerticalLine
+
+    ret
+
+DrawFrame endp
+
+;--------------------------------------------------------------------------------
+; Short:   Draws horizontal frame line in vram
+; Exp:     ES = Video Segment
+;          DF = 0
+; In:      DI = start pos to draw line
+;          BX = frame width
+;          AX = symbol to write line with
+; Out:     DI = end pos of newly drown line
+; Destroy: CX
+;--------------------------------------------------------------------------------
+
+DrawHorizontalLine proc
+
+    mov cx, bx
+    sub cx, 2
+    rep stosw
+
+    ret
+
+DrawHorizontalLine endp
+
+;--------------------------------------------------------------------------------
+; Short:   Draws vertical frame line in vram
+; Exp:     ES = Video Segment
+;          DF = 0
+; In:      DI = start pos to draw line
+;          DX = frame height
+;          AX = symbol to write line with
+; Out:     DI = end pos of newly drown line
+; Destroy: CX
+;--------------------------------------------------------------------------------
+
+DrawVerticalLine proc
+
+    mov cx, dx
+    sub cx, 2
+
+    @@Next:
+        mov es:[di], ax
+        add di, (SCREEN_WIDTH * 2)
+    loop @@Next
+
+    ret
+
+DrawVerticalLine endp
+
+;--------------------------------------------------------------------------------
+; Short:   Draws background for the frame
+; Exp:     ES = Video Segment
+;          DF = 0
+; In:      DI = pos of the lu frame corner
+;          BX = frame width
+;          DX = frame height
+;          AH = background color
+; Out:     -
+; Destroy: SI, DI, CX
+;--------------------------------------------------------------------------------
+
+DrawFrameBackground proc
+
+    ; save bp
+    push bp
+
+    ; si = iterator for lines
+    mov si, dx
+
+    ; bp = 2 * (SCREEN_WIDTH - FRAME_WIDTH)
+    ; bp = shift for DI in loop
+    mov bp, (SCREEN_WIDTH)
+    sub bp, bx
+    shl bp, 1
+
+    @@NextLine:
+        ; cx = iterator for columns
+        mov cx, bx
+
+        @@NextSymbol:
+            and byte ptr es:[di + 1], ZERO_BG_COLOR
+            or  byte ptr es:[di + 1], ah
+
+            add di, 2
+
+        loop @@NextSymbol
+
+        ; move to the next line start
+        add di, bp
+
+        dec si
+
+    cmp si, 0
+    jnz @@NextLine
+
+    pop bp
+
+    ret
+
+DrawFrameBackground endp
+
+RegsFrameStyle FrameStyle <         \
+    (             BRT_RED * 100h),  \
+    (             GRAY_BG * 100h),  \
+    (LU_CORNER  + BRT_RED * 100h),  \
+    (HORIZ_LINE + BRT_RED * 100h),  \
+    (RU_CORNER  + BRT_RED * 100h),  \
+    (VERT_LINE  + BRT_RED * 100h),  \
+    (VERT_LINE  + BRT_RED * 100h),  \
+    (LD_CORNER  + BRT_RED * 100h),  \
+    (HORIZ_LINE + BRT_RED * 100h),  \
+    (RD_CORNER  + BRT_RED * 100h)>
+
+;================================================================================
 
 ;--------------------------------------------------------------------------------
 ; Short:   Exit the process, leaving code and data in memory
