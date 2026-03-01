@@ -24,9 +24,6 @@ MAX_ITERS                   equ 200d
 
 END_STR                     equ '$'
 
-ZERO_ASCII_CODE             equ 48d
-BIG_A_ASCII_CODE            equ 65d
-
 REGS_DUMP_ITERS             equ 13d
 FLAGS_DUMP_ITERS            equ 9d
 REGS_DUMP_LINE_START_LEN    equ 6d
@@ -93,11 +90,6 @@ FlagsStruct struc
 FlagsStruct ends
 
 ; --------------------------------- START ----------------------------------
-; add DrawFrame (maybe through inc)
-; in frame add symbols from terminal
-; in frame add middle symbols and store them with space by default
-; //TODO: README for resident
-; //TODO: clear github from unnecessary files
 
 Start:
 	call Main
@@ -1101,15 +1093,15 @@ ConvertHexDigitToAscii proc
     cmp bl, 0ah
     jge @@NotDigit
 
-    ; if digit
-    add cl, ZERO_ASCII_CODE
+    ; if digit --> add '0' ascii code
+    add cl, '0'
     jmp @@End
 
 @@NotDigit:
 
-    ; if letter
+    ; if letter --> add letter 'A' ascii code
     ; - 10d to get shift from 'A'
-    add cl, (BIG_A_ASCII_CODE - 10d)
+    add cl, ('A' - 10d)
 
 @@End:
 
