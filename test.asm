@@ -4,20 +4,28 @@
 org 100h
 
 Start:
-        xor di, di
+        mov ax, 0DEDh
+
+        mov ds, ax
+        mov es, ax
+        mov ss, ax
 
         Next:
 
         std
+        sti
+        stc
 
         mov ax, 1111h
         mov bx, 2222h
         mov cx, 3333h
         mov dx, 4444h
 
-        inc di
+        mov si, 5555h
+        mov di, 6666h
 
-        cld
+        mov bp, 7777h
+        mov sp, 8888h
 
         in al, 60h
 

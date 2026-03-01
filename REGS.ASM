@@ -29,36 +29,36 @@ FLAGS_DUMP_LINE_START_LEN   equ 5d
 
 ; ------------------------------- DATA TYPES -------------------------------
 
-RegisterValuesStruct struc
-    SavedAxValue    dw 0
-    SavedBxValue    dw 0
-    SavedCxValue    dw 0
-    SavedDxValue    dw 0
-    SavedSiValue    dw 0
-    SavedDiValue    dw 0
-    SavedBpValue    dw 0
-    SavedSpValue    dw 0
-    SavedDsValue    dw 0
-    SavedEsValue    dw 0
-    SavedSsValue    dw 0
-    SavedCsValue    dw 0
-    SavedIpValue    dw 0
-    SavedFlagsValue dw 0
-RegisterValuesStruct ends
+RegistersStruct struc
+    regAX    dw 0
+    regBX    dw 0
+    regCX    dw 0
+    regDX    dw 0
+    regSI    dw 0
+    regDI    dw 0
+    regBP    dw 0
+    regSP    dw 0
+    regDS    dw 0
+    regES    dw 0
+    regSS    dw 0
+    regCS    dw 0
+    regIP    dw 0
+    regFlags dw 0
+RegistersStruct ends
 
 FlagsStruct struc
-    FS_CF db 0
-    FS_PF db 0
-    FS_AF db 0
-    FS_ZF db 0
-    FS_SF db 0
-    FS_TF db 0
-    FS_IF db 0
-    FS_DF db 0
-    FS_OF db 0
+    flagCF  db 0
+    flagPF  db 0
+    flagAF  db 0
+    flagZF  db 0
+    flagSF  db 0
+    flagTF  db 0
+    flagIF  db 0
+    flagDF  db 0
+    flagOF  db 0
 FlagsStruct ends
 
-; ---------------------------------- CODE ----------------------------------
+; --------------------------------- START ----------------------------------
 ; //TODO: --> flags in different struct + function DrawFlags
 ; function clear screen on different scan code
 ; documentation + no copy paste
@@ -66,15 +66,26 @@ FlagsStruct ends
 ; + read about flags in thelp
 
 Start:
-
-    ; call RegsDump
 	call Main
-    ; int 09h
-    ; int 09h
-
 	call Exit
 
-;--------------------------------------------------------------------------------
+; ---------------------------------- DATA ----------------------------------
+
+IntValueStr     db '0000$'
+
+RegisterValues  RegistersStruct ?
+FlagsValues     FlagsStruct ?
+
+DumpStartLines  db 'AX = $', 'BX = $', 'CX = $', 'DX = $'
+                db 'SI = $', 'DI = $', 'BP = $', 'SP = $'
+                db 'DS = $', 'ES = $', 'SS = $', 'CS = $'
+                db 'IP = $'
+
+                db 'c = $', 'p = $', 'a = $', 'z = $'
+                db 's = $', 't = $', 'i = $', 'd = $'
+                db 'o = $'
+
+; ---------------------------------- CODE ----------------------------------
 
 Main proc
 
@@ -153,7 +164,6 @@ SetKeyboardInterrupt endp
 MyKeyboardInterrupt proc
 
 	; int shouldn't destroy
-    pushf
 	push ax bx cx dx di si bp sp es ds
 
 	push ax
@@ -178,7 +188,6 @@ MyKeyboardInterrupt proc
     call ResetController
 
 	pop ds es sp bp si di dx cx bx ax
-    popf
 
 	; jmp (0eah) StdKbIntSegment : StdKbIntIndex
 	; in reverse cause of Little-Endian
@@ -186,6 +195,8 @@ MyKeyboardInterrupt proc
 
 MyKeyboardInterrupt endp
 
+; cpu interprets this two words as args for jmp command
+; so it jumps to the old keyboard interrupt
 StdKeyboardInterruptIndex	dw ?
 StdKeyboardInterruptSegment	dw ?
 
@@ -232,10 +243,7 @@ ResetController endp
 
 ;--------------------------------------------------------------------------------
 ; Short:   Dumps registers in vram
-; Exp:     -
-; In:      -
-; Out:     -
-; Destroy: AX, BX, CX, DI, SI, ES
+; Destroy: AX, BX, CX, DX, DI, SI, DS, ES
 ;--------------------------------------------------------------------------------
 
 RegsDump proc
@@ -253,144 +261,138 @@ RegsDump proc
 RegsDump endp
 
 ;--------------------------------------------------------------------------------
-; Short:   -
-; Exp:     -
-; In:      -
-; Out:     -
-; Destroy: -
+; Short:   Stores values of all the registers in memory in struct RegisterValues
+; Exp:     RegisterValues --> struct to store regs values to
+; In:      register values in registers
+; Destroy: AX, SI, DI, BP
 ;--------------------------------------------------------------------------------
 
 ;------------------------------------
 ; + 2 for StoreRegsValues call addr
-; + 6 for pushes in StoreRegsValues
 ; + 2 for RegsDumpCall call addr
-; + 11 * 2 for saved regs in MyKeyboardInterrupt
-; = 32
-MY_STACK_SHIFT equ 32
+; + 10 * 2 for saved regs in MyKeyboardInterrupt
+; = 24
+MY_STACK_SHIFT equ 24
 ;------------------------------------
 
 StoreRegsValues proc
 
+    ; save si in stack (will be used for indexing)
     push si
 
     mov si, offset RegisterValues
 
 ;------------------------------------
-; store flags, cs and ip
+; store default registers
 
-    push ax bp
+    mov cs:[si + regAX], ax
+    mov cs:[si + regBX], bx
+    mov cs:[si + regCX], cx
+    mov cs:[si + regDX], dx
+    mov cs:[si + regDI], di
+    mov cs:[si + regBP], bp
 
-    mov bp, sp
-
-    ; in int call there were: pushf --> push cs --> push ip
-    mov ax, ss:[bp + MY_STACK_SHIFT]
-    mov cs:[si + SavedIpValue], ax
-
-    mov ax, ss:[bp + MY_STACK_SHIFT + 2]
-    mov cs:[si + SavedCsValue], ax
-
-    mov ax, ss:[bp + MY_STACK_SHIFT + 4]
-    mov cs:[si + SavedFlagsValue], ax
-
-    pop bp ax
-
-;------------------------------------
-; store sp
-    push ax
-
-    mov ax, sp
-    add ax, MY_STACK_SHIFT + 6 - 2
-    mov cs:[si + SavedSpValue], ax
-
-    pop ax
+    ; store si value (was used for indexing)
+    ; use di for indexing (as si can't be used)
+    mov di, si
+    ; get true si value
+    pop si
+    mov cs:[di + regSI], si
 
 ;------------------------------------
 ; store segment registers
 
-    push ax
-
     mov ax, ds
-    mov cs:[si + SavedDsValue], ax
-
+    mov cs:[di + regDS], ax
     mov ax, es
-    mov cs:[si + SavedEsValue], ax
-
+    mov cs:[di + regES], ax
     mov ax, ss
-    mov cs:[si + SavedSsValue], ax
-
-    pop ax
+    mov cs:[di + regSS], ax
 
 ;------------------------------------
-; store default registers
+; store flags, cs, ip, sp
 
-    mov cs:[si + SavedAxValue], ax
-    mov cs:[si + SavedBxValue], bx
-    mov cs:[si + SavedCxValue], cx
-    mov cs:[si + SavedDxValue], dx
-    mov cs:[si + SavedDiValue], di
-    mov cs:[si + SavedBpValue], bp
+    ; (sp can't be indexed, so use bp)
+    mov bp, sp
 
-; store si value (was used for indexing)
+    ; get IRET call stack frame registers
+    ; in int call there were: pushf --> push cs --> push ip
+    mov ax, ss:[bp + MY_STACK_SHIFT]
+    mov cs:[di + regIP], ax
 
-    mov di, si
-    pop si
-    mov cs:[di + SavedSiValue], si
+    mov ax, ss:[bp + MY_STACK_SHIFT + 2]
+    mov cs:[di + regCS], ax
+
+    mov ax, ss:[bp + MY_STACK_SHIFT + 4]
+    mov cs:[di + regFlags], ax
+
+    ; store sp
+    mov ax, sp
+    add ax, MY_STACK_SHIFT + 6
+    mov cs:[di + regSP], ax
+
+;------------------------------------
 
     ret
 
 StoreRegsValues endp
 
 ;--------------------------------------------------------------------------------
-; Short:   -
-; Exp:     -
-; In:      -
-; Out:     -
-; Destroy: -
+; Short:   Stores needed flags values in memory at FlagsValues
+;          (from register flag stored in memory)
+; Exp:     AX = flag register value (can be shifted)
+;          SI --> FlagsValues (can be shifted)
+; In:      count = number of flags to store (shifts to do)
+;          shift = how much to shift to get next flag (shr ax, shift)
+; Out:     AX shifted <count> times by <shift>
+;          SI += count
+; Destroy: AX, BL, CX
+;--------------------------------------------------------------------------------
+
+mStoreFlagsValuesLoop macro count, shift
+    local @@Next
+
+    mov cx, count
+
+@@Next:
+
+    ; get curr flag value from al lowest bit
+    mov bl, al
+    and bl, 01h
+    mov byte ptr cs:[si], bl
+    inc si
+
+    shr ax, shift
+
+    loop @@Next
+
+    endm
+
+;--------------------------------------------------------------------------------
+; Short:   Stores all flags values in memory at FlagsValues
+;          (from register flag stored in memory)
+; Exp:     cs:[RegisterValues + regFlags] = value of register flag
+;          FlagsValues --> memory to store flags bits to
+; Destroy: AX, BL, CX, SI
 ;--------------------------------------------------------------------------------
 ; Flags are stored in flags reg:
 ; [-][-][-][-] [O][D][I][T] [S][Z][-][A] [-][P][-][C]
+;--------------------------------------------------------------------------------
 
 StoreFlagsValues proc
 
-    xor ax, ax
-
+    ; ax = flags register
     mov si, offset RegisterValues
+    mov ax, cs:[si + regFlags]
 
-    ; ax = flags reg
-    mov ax, cs:[si + SavedFlagsValue]
-
+    ; si --> struct with flag values
     mov si, offset FlagsValues
 
-; when they are separated with 1 value
-    mov cx, 3
+    ; 3 flags are stored separated by 3 reserved fields (shr ax, 2)
+    mStoreFlagsValuesLoop 3, 2
 
-@@NextFlagSep:
-
-    ; get curr flag value from al lowest bit
-    mov bl, al
-    and bl, 01h
-    mov byte ptr cs:[si], bl
-    inc si
-
-    ; move 2 because of reserved flag bit
-    shr ax, 2
-
-    loop @@NextFlagSep
-
-; when they are stored continuously
-    mov cx, 6
-
-@@NextFlagCont:
-
-    ; get curr flag value from al lowest bit
-    mov bl, al
-    and bl, 01h
-    mov byte ptr cs:[si], bl
-    inc si
-
-    shr ax, 1
-
-    loop @@NextFlagCont
+    ; 6 flags are stored continuously (shr ax, 1)
+    mStoreFlagsValuesLoop 6, 1
 
     ret
 
@@ -456,6 +458,9 @@ DrawRegs endp
 
 DrawFlags proc
 
+    ; + 6 for skipping registers
+    mov di, (SCREEN_WIDTH * 2 + SCREEN_WIDTH / 2 + 6) * 2
+
     mov cx, FLAGS_DUMP_ITERS
 
     mov bp, offset FlagsValues
@@ -516,6 +521,7 @@ DrawSingleReg proc
 
 DrawSingleReg endp
 
+;//FIXME - на регистрах!!!!
 ;--------------------------------------------------------------------------------
 ; Short:   -
 ; Exp:     -
@@ -714,39 +720,6 @@ Exit proc
 	ret
 
 Exit endp
-
-;--------------------------------------------------------------------------------
-
-; ---------------------------------- DATA ----------------------------------
-
-IntValueStr db ?, ?, ?, ?, '$'
-
-RegisterValues RegisterValuesStruct ?
-
-FlagsValues FlagsStruct ?
-
-DumpStartLines  db 'AX = $'
-                db 'BX = $'
-                db 'CX = $'
-                db 'DX = $'
-                db 'SI = $'
-                db 'DI = $'
-                db 'BP = $'
-                db 'SP = $'
-                db 'DS = $'
-                db 'ES = $'
-                db 'SS = $'
-                db 'CS = $'
-                db 'IP = $'
-                db 'c = $'
-                db 'p = $'
-                db 'a = $'
-                db 'z = $'
-                db 's = $'
-                db 't = $'
-                db 'i = $'
-                db 'd = $'
-                db 'o = $'
 
 ;--------------------------------------------------------------------------------
 
