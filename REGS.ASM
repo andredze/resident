@@ -250,9 +250,14 @@ RegsDump proc
     ; si --> preambula for regs and flags dump
     mov si, offset DumpStartLines
 
-    call DrawRegs
-
+    ; set color for regs dump
     mov ah, RED_ON_GRAY
+
+    ; DI = start position in vram for regs dump
+    ; -4 for centering
+	mov di, (SCREEN_WIDTH * 2 + SCREEN_WIDTH / 2 - 4) * 2
+
+    call DrawRegs
 
     ; DI = start position in vram for flags dump
     ; + 6 for skipping registers
@@ -404,43 +409,85 @@ StoreFlagsValues endp
 
 ;--------------------------------------------------------------------------------
 ; Short:   Draws registers values with preambula in vram
-; Exp:     -
-; In:      -
-; Out:     -
-; Destroy: -
+; Exp:     CS:[RegisterValues] --> words with registers values
+; In:      AH = color
+;          ES:[DI] --> start position to draw registers
+;          CS:[SI] --> start of registers preambula text in memory
+; Out:     CS:[SI] --> start of flags preambula text in memory
+; Destroy: AL, BL, CX, SI, DI, BP
 ;--------------------------------------------------------------------------------
 
 DrawRegs proc
 
-    ; set drawing pos (-4 for centering)
-	mov di, (SCREEN_WIDTH * 2 + SCREEN_WIDTH / 2 - 4) * 2
-
+    ; cx = regs count
     mov cx, REGS_DUMP_ITERS
-
+    ; bp --> struct with stored regs words
     mov bp, offset RegisterValues
 
-;------------------------------------
-@@NextReg:
-
-    mov ax, cs:[bp]
-	push si di
-    mov dx, 0d
+@@Next:
+	push di cx
     call DrawSingleReg
-    pop di si
+    pop cx di
+
+    ; Note: CS:[SI] --> next reg preambula line
+    ; in memory automatically
 
     ; newline
     add di, (SCREEN_WIDTH * 2)
-    add si, REGS_DUMP_LINE_START_LEN
-
     ; to get next reg from memory
     add bp, 2
 
-    loop @@NextReg
-;------------------------------------
+    loop @@Next
 
     ret
 
 DrawRegs endp
+
+;--------------------------------------------------------------------------------
+; Short:   Dumps current reg in vram with preambula (example: AX = 0DED)
+; Exp:     DS = CS
+; In:      AH = color
+;          ES:[DI] --> pos in vram to draw
+;          CS:[SI] --> reg preambula in memory
+;          CS:[BP] --> reg value word in memory
+; Out:     CS:[SI] --> next flag preambula line in memory
+; Destroy: AL, BL, CX, DI
+;--------------------------------------------------------------------------------
+
+DrawSingleReg proc
+
+    ; draw preambula text for reg: "AX = "
+    ; after this call:
+    ; DI --> vram pos after written preambula text
+    ; SI --> next reg preambula line in memory
+    call DrawData
+
+    ; save new preambula position
+    push si
+
+    ; save AH = color
+    push ax
+
+    ; AX = reg value word in memory (value to convert)
+    mov ax, cs:[bp]
+    ; will be: CS:[IntValueStr] --> converted string
+    call ConvertIntToString
+
+    ; DS:[SI] --> reg value str
+    ; (DS = CS)
+    mov si, offset IntValueStr
+
+    ; restore AH = color value
+    pop ax
+
+    call DrawData
+
+    ; restore new preambula position
+    pop si
+
+    ret
+
+DrawSingleReg endp
 
 ;--------------------------------------------------------------------------------
 ; Short:   Dumps flags with preambula in vram
@@ -481,7 +528,6 @@ DrawFlags endp
 
 ;--------------------------------------------------------------------------------
 ; Short:   Dumps current flag in vram with preambula (example: c = 1)
-; Exp:
 ; In:      AH = color of symbols
 ;          ES:[DI] --> pos in vram to draw
 ;          CS:[SI] --> flag preambula in memory
@@ -515,86 +561,6 @@ DrawSingleFlag proc
     ret
 
 DrawSingleFlag endp
-
-;--------------------------------------------------------------------------------
-; Short:   -
-; Exp:     -
-; In:      AX = reg value
-;          DX = shift for IntValueStr
-; Out:     -
-; Destroy: -
-;--------------------------------------------------------------------------------
-
-DrawSingleReg proc
-
-    push ax
-
-; set color
-	mov ah, YELLOW_ON_RED
-
-    push cx
-    call DrawData
-    pop cx
-;------------------------------------
-
-    mov bh, YELLOW_ON_RED
-
-    pop ax
-
-    push dx di bx ax
-    call DrawRegValue
-    add sp, 8
-
-    ret
-
-DrawSingleReg endp
-
-;//FIXME - на регистрах!!!!
-;--------------------------------------------------------------------------------
-; Short:   -
-; Exp:     -
-; In:      push arguments in stack in order
-;          [0] = shift for IntValueStr  ([bp + 10])
-;                (to draw only a part of a word,
-;                 for drawing a bit --> shift = 3)
-;          [1] = vram pos to write data ([bp + 8])
-;          [2] = color in high byte     ([bp + 6])
-;          [3] = reg value              ([bp + 4])
-; Out:     -
-; Destroy: -
-;--------------------------------------------------------------------------------
-
-DrawRegValue proc
-
-    push bp
-    mov bp, sp
-
-    push ax bx cx si di
-
-    mov ax, ss:[bp + 4]
-
-    call ConvertIntToString
-
-    mov bx, cs
-    mov ds, bx
-    mov si, offset IntValueStr
-
-    ; add shift for drawing only a part of a word
-    mov di, ss:[bp + 10]
-    add si, di
-
-    mov ax, ss:[bp + 6]
-    mov di, ss:[bp + 8]
-
-    call DrawData
-
-    pop di si cx bx ax
-
-    pop bp
-
-    ret
-
-DrawRegValue endp
 
 ;--------------------------------------------------------------------------------
 ; Short:   Converts integer (register value) into string in data at IntValueStr
@@ -699,11 +665,12 @@ ConvertHexDigitToAscii endp
 ;--------------------------------------------------------------------------------
 ; Short:   Draws data in vram (until the '$')
 ; Exp:     DF = 0
-; In:      SI --> data
-;          DI --> vram position to write
+; In:      DS:[SI] --> data
+;          ES:[DI] --> vram position to write
 ;          AH = data color
 ; Destroy: AL, CX, DI, SI
 ; Out:     SI --> data after '$'
+;          DI --> vram after last symbol
 ;--------------------------------------------------------------------------------
 
 DrawData proc
