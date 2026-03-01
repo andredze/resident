@@ -77,6 +77,7 @@ end Start
 ![example](https://github.com/andredze/resident/raw/master/example.png)
 
 # Screen saves
+Program remember the screen that was under the frame and refreshes with ll the changes
 
 When pressed '~'
 ![pressed](https://github.com/andredze/resident/raw/master/pressed.png)
