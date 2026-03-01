@@ -121,12 +121,94 @@ DumpStartLines      db 'AX = $', 'BX = $', 'CX = $', 'DX = $'
 
 Main proc
 
-	call GetStdKeyboardInterrupt
-	call SetKeyboardInterrupt
+	call GetStdTimerInterrupt
+	call SetTimerInterrupt
 
 	ret
 
 Main endp
+
+;--------------------------------------------------------------------------------
+; Short:   Sets variables for index and segment of
+;		   timer interrupt to a standard DOS call
+; Destroy: AX, BX, ES
+;--------------------------------------------------------------------------------
+
+GetStdTimerInterrupt proc
+
+	; Direct realisation
+	; Interrupt Table segment
+	mov bx, 00h
+	mov es, bx
+
+	; TimerInterrupt index
+	mov bx, 4 * 08h
+
+	mov ax, es:[bx]
+	mov cs:[StdTimerInterruptIndex], ax
+
+	mov ax, es:[bx + 2]
+	mov cs:[StdTimerInterruptSegment], ax
+
+	ret
+
+GetStdTimerInterrupt endp
+
+;--------------------------------------------------------------------------------
+; Short:   Sets timer interrupt (08h) to a resident
+; Exp:     MyTimerInterrupt = new interrupt 08h function
+; Destroy: AX, BX, ES
+; Note:    sets IF = 1
+;--------------------------------------------------------------------------------
+
+SetTimerInterrupt proc
+
+	; Direct realisation
+	; Interrupt table segment
+	mov ax, 00h
+	mov es, ax
+
+	; 4 bytes = function address size
+	; 08h = interrupt: IRQ 0 Timer
+	mov bx, 4 * 08h
+
+	; prohibit interrupts (IF = 0)
+	cli
+    ; put my timer interrupt index
+	mov es:[bx], offset MyTimerInterrupt
+    ; put my timer interrupt segment
+	mov ax, cs
+	mov es:[bx + 2], ax
+	; allow interrupts (IF = 1)
+	sti
+
+	ret
+
+SetTimerInterrupt endp
+
+;--------------------------------------------------------------------------------
+; Short:   Timer interrupt that draws frame with registers on the screen
+;--------------------------------------------------------------------------------
+
+MyTimerInterrupt proc
+
+	; int shouldn't destroy
+	push ax bx cx dx di si bp es ds
+
+    call RegsDump
+
+	pop ds es bp si di dx cx bx ax
+
+	; jmp (0eah) StdTimerIntSegment : StdTimerIntIndex
+	; in reverse cause of Little-Endian
+	db JMP_BYTECODE
+
+MyTimerInterrupt endp
+
+; cpu interprets this two words as args for jmp command
+; so it jumps to the old keyboard interrupt
+StdTimerInterruptIndex	    dw ?
+StdTimerInterruptSegment	dw ?
 
 ;--------------------------------------------------------------------------------
 ; Short:   Sets variables for index and segment of
