@@ -127,6 +127,7 @@ Main proc
     mov ax, 00h
     mov cs:[si], ax
 
+    call GetStdTimerInterrupt
 	call GetStdKeyboardInterrupt
 	call SetMyKeyboardInterrupt
 
@@ -196,11 +197,13 @@ SetMyTimerInterrupt endp
 ; Short:   Sets default timer interrupt back (08h)
 ; Exp:     StdTimerInterruptIndex   = interrupt 08h function index
 ;          StdTimerInterruptSegment = interrupt 08h function segment
-; Destroy: AX, BX, DI, ES
+; Destroy: AX, BX, ES
 ; Note:    sets IF = 1
 ;--------------------------------------------------------------------------------
 
 SetDefaultTimerInterrupt proc
+
+    push di
 
 	; Direct realisation
 	; Interrupt table segment
@@ -221,6 +224,8 @@ SetDefaultTimerInterrupt proc
 	mov es:[bx + 2], di
 	; allow interrupts (IF = 1)
 	sti
+
+    pop di
 
 	ret
 
@@ -307,6 +312,37 @@ SetMyKeyboardInterrupt proc
 SetMyKeyboardInterrupt endp
 
 ;--------------------------------------------------------------------------------
+; Short:   Macro that sets needed timer interrupt according to the mode
+;          If it was already ser --> jumps to a normal int 08h call
+; In:      mode = 00h --> stop timer
+;               = 01h --> start timer
+;          set_timer_interrupt = function that sets int 08h to a new one
+; Destroy: SI
+;--------------------------------------------------------------------------------
+; Note: comments are written for the mode --> start timer (01h)
+;--------------------------------------------------------------------------------
+
+mHandleTimerChange macro mode, set_timer_interrupt
+
+    ; if curr mode was already set:
+    ; if TimerInterruptIsActive == mode --> do nothing
+    mov si, offset MyTimerInterruptIsActive
+    cmp byte ptr cs:[si], mode
+    ; if TimerInterruptIsActive == mode --> jmp to normal int 09h
+    je @@NormalKeyboardInterrupt
+
+    ; else
+    ; change the flag to current mode
+    mov byte ptr cs:MyTimerInterruptIsActive, mode
+
+    ; set TimerInterrupt 08h to a needed one
+    ; mode 00h --> set to the default timer int
+    ; mode 01h --> set to my timer int
+    call set_timer_interrupt
+
+    endm
+
+;--------------------------------------------------------------------------------
 ; Short:   Keyboard interrupt that draws port value scan code in vram
 ;--------------------------------------------------------------------------------
 
@@ -328,43 +364,11 @@ MyKeyboardInterrupt proc
     jmp @@NormalKeyboardInterrupt
 
 @@HandleStartTimer:
-    ; if TimerInterrupt was already changed --> do nothing
-    mov si, offset MyTimerInterruptIsActive
-    mov byte ptr al, cs:[si]
-    ; ZF = 1 if AX = 0 (TimerInt is not active)
-    test al, al
-    ; if ZF = 0 --> TimerIsActive --> jmp to normal int 09h
-    jnz @@NormalKeyboardInterrupt
-
-    ; turn the flag IntIsActive on
-    mov byte ptr cs:MyTimerInterruptIsActive, 01h
-
-    ; make resident for timer interrupt (IRQ 0)
-    call GetStdTimerInterrupt
-    call SetMyTimerInterrupt
-
+    mHandleTimerChange 01h, SetMyTimerInterrupt
     jmp @@End
 
 @@HandleStopTimer:
-    cli
-
-    ; if TimerInterrupt was not changed --> do nothing
-    mov si, offset MyTimerInterruptIsActive
-    mov byte ptr al, cs:[si]
-    ; ZF = 1 if AX = 0 (TimerInt is not active)
-    test al, al
-    ; if ZF = 0 --> TimerIsActive --> jmp to normal int 09h
-    jz @@NormalKeyboardInterrupt
-
-    ; else if TimerInt was active --> set default TimerInt 08h
-    push di
-    call SetDefaultTimerInterrupt
-    pop di
-
-    ; turn the flag IntIsActive off
-    mov byte ptr cs:MyTimerInterruptIsActive, 00h
-
-    sti
+    mHandleTimerChange 00h, SetDefaultTimerInterrupt
 
 @@End:
     call ResetController
