@@ -16,6 +16,7 @@ RED_ON_BLACK 	            equ 04h
 JMP_BYTECODE                equ 0eah
 
 TILDA_SCAN_CODE             equ 29h
+ESC_SCAN_CODE               equ 01h
 
 MAX_ITERS                   equ 200d
 
@@ -101,7 +102,7 @@ Start:
 
 ; ---------------------------------- DATA ----------------------------------
 
-RegsDumpIsActive    db 0
+MyTimerInterruptIsActive db 0
 
 IntValueStr         db '0000$'
 
@@ -121,8 +122,13 @@ DumpStartLines      db 'AX = $', 'BX = $', 'CX = $', 'DX = $'
 
 Main proc
 
-	call GetStdTimerInterrupt
-	call SetTimerInterrupt
+    ; zero the MyTimerInterruptIsActive
+    mov si, offset MyTimerInterruptIsActive
+    mov ax, 00h
+    mov cs:[si], ax
+
+	call GetStdKeyboardInterrupt
+	call SetMyKeyboardInterrupt
 
 	ret
 
@@ -161,7 +167,7 @@ GetStdTimerInterrupt endp
 ; Note:    sets IF = 1
 ;--------------------------------------------------------------------------------
 
-SetTimerInterrupt proc
+SetMyTimerInterrupt proc
 
 	; Direct realisation
 	; Interrupt table segment
@@ -184,7 +190,41 @@ SetTimerInterrupt proc
 
 	ret
 
-SetTimerInterrupt endp
+SetMyTimerInterrupt endp
+
+;--------------------------------------------------------------------------------
+; Short:   Sets default timer interrupt back (08h)
+; Exp:     StdTimerInterruptIndex   = interrupt 08h function index
+;          StdTimerInterruptSegment = interrupt 08h function segment
+; Destroy: AX, BX, DI, ES
+; Note:    sets IF = 1
+;--------------------------------------------------------------------------------
+
+SetDefaultTimerInterrupt proc
+
+	; Direct realisation
+	; Interrupt table segment
+	mov ax, 00h
+	mov es, ax
+
+	; 4 bytes = function address size
+	; 08h = interrupt: IRQ 0 Timer
+	mov bx, 4 * 08h
+
+	; prohibit interrupts (IF = 0)
+	cli
+    ; put my timer interrupt index
+    mov di, cs:[StdTimerInterruptIndex]
+	mov es:[bx], di
+    ; put my timer interrupt segment
+    mov di, cs:[StdTimerInterruptSegment]
+	mov es:[bx + 2], di
+	; allow interrupts (IF = 1)
+	sti
+
+	ret
+
+SetDefaultTimerInterrupt endp
 
 ;--------------------------------------------------------------------------------
 ; Short:   Timer interrupt that draws frame with registers on the screen
@@ -243,7 +283,7 @@ GetStdKeyboardInterrupt endp
 ; Note:    sets IF = 1
 ;--------------------------------------------------------------------------------
 
-SetKeyboardInterrupt proc
+SetMyKeyboardInterrupt proc
 
 	; Direct realisation
 	; Interrupt table segment
@@ -264,7 +304,7 @@ SetKeyboardInterrupt proc
 
 	ret
 
-SetKeyboardInterrupt endp
+SetMyKeyboardInterrupt endp
 
 ;--------------------------------------------------------------------------------
 ; Short:   Keyboard interrupt that draws port value scan code in vram
@@ -273,30 +313,71 @@ SetKeyboardInterrupt endp
 MyKeyboardInterrupt proc
 
 	; int shouldn't destroy
-	push ax bx cx dx di si bp es ds
-
-	push ax
+    push ax bx si es
 
 	; get scan-code of kb input
     ; 60h = KB port for pressed key scan code
 	in al, 60h
 
     cmp al, TILDA_SCAN_CODE
-    jne @@CleanUpEnd
+    je @@HandleStartTimer
 
-	pop ax
+    cmp al, ESC_SCAN_CODE
+    je @@HandleStopTimer
 
-    call RegsDump
+    jmp @@NormalKeyboardInterrupt
+
+@@HandleStartTimer:
+    ; if TimerInterrupt was already changed --> do nothing
+    mov si, offset MyTimerInterruptIsActive
+    mov byte ptr al, cs:[si]
+    ; ZF = 1 if AX = 0 (TimerInt is not active)
+    test al, al
+    ; if ZF = 0 --> TimerIsActive --> jmp to normal int 09h
+    jnz @@NormalKeyboardInterrupt
+
+    ; turn the flag IntIsActive on
+    mov byte ptr cs:MyTimerInterruptIsActive, 01h
+
+    ; make resident for timer interrupt (IRQ 0)
+    call GetStdTimerInterrupt
+    call SetMyTimerInterrupt
 
     jmp @@End
 
-@@CleanUpEnd:
-    pop ax
+@@HandleStopTimer:
+    cli
+
+    ; if TimerInterrupt was not changed --> do nothing
+    mov si, offset MyTimerInterruptIsActive
+    mov byte ptr al, cs:[si]
+    ; ZF = 1 if AX = 0 (TimerInt is not active)
+    test al, al
+    ; if ZF = 0 --> TimerIsActive --> jmp to normal int 09h
+    jz @@NormalKeyboardInterrupt
+
+    ; else if TimerInt was active --> set default TimerInt 08h
+    push di
+    call SetDefaultTimerInterrupt
+    pop di
+
+    ; turn the flag IntIsActive off
+    mov byte ptr cs:MyTimerInterruptIsActive, 00h
+
+    sti
 
 @@End:
     call ResetController
 
-	pop ds es bp si di dx cx bx ax
+    pop es si bx ax
+
+    ; if pressed hotkey --> don't call default int 09h
+    ; iret = popf + jmp far
+    iret
+
+@@NormalKeyboardInterrupt:
+
+	pop es si bx ax
 
 	; jmp (0eah) StdKbIntSegment : StdKbIntIndex
 	; in reverse cause of Little-Endian
