@@ -79,7 +79,7 @@ end Start
 # Screen saves
 
 When pressed '~'
-![example](https://github.com/andredze/resident/raw/master/pressed.png)
+![pressed](https://github.com/andredze/resident/raw/master/pressed.png)
 
 When pressed 'ESC'
-![example](https://github.com/andredze/resident/raw/master/closed.png)
+![closed](https://github.com/andredze/resident/raw/master/closed.png)
