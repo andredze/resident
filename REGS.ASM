@@ -29,7 +29,7 @@ FLAGS_DUMP_ITERS            equ 9d
 REGS_DUMP_LINE_START_LEN    equ 6d
 FLAGS_DUMP_LINE_START_LEN   equ 5d
 
-FRAME_HEIGHT                equ 14d
+FRAME_HEIGHT                equ 15d
 FRAME_WIDTH                 equ 19d
 
 HORIZ_LINE                  equ 0cdh
@@ -264,34 +264,7 @@ RegsDump proc
 
     call StoreFlagsValues
 
-    ; set df = 0 in case it's 1
-    cld
-
-    ; ES = Video segment
-	mov ax, VIDEO_SEG
-	mov es, ax
-
-	; ds = cs (data is stored in code segment)
-    mov bx, cs
-    mov ds, bx
-
-    ; si --> preambula for regs and flags dump
-    mov si, offset DumpStartLines
-
-    ; set color for regs dump
-    mov ah, RED_ON_BLACK
-
-    ; DI = start position in vram for regs dump
-    ; -4 for centering
-	mov di, (SCREEN_WIDTH * 2 + SCREEN_WIDTH / 2 - 4) * 2
-
-    call DrawRegs
-
-    ; DI = start position in vram for flags dump
-    ; + 6 for skipping registers
-    mov di, (SCREEN_WIDTH * 2 + SCREEN_WIDTH / 2 + 6) * 2
-
-    call DrawFlags
+    call DrawRegsDumpData
 
     ; DS:[SI] --> frame style
     mov si, offset RegsFrameStyle
@@ -451,6 +424,46 @@ StoreFlagsValues proc
     ret
 
 StoreFlagsValues endp
+
+;--------------------------------------------------------------------------------
+; Short:   Draws registers and flags preambula + values in vram
+; Destroy: AX, BX, CX, SI, DI, BP
+;--------------------------------------------------------------------------------
+
+DrawRegsDumpData proc
+
+    ; set df = 0 in case it's 1
+    cld
+
+    ; ES = Video segment
+	mov ax, VIDEO_SEG
+	mov es, ax
+
+	; ds = cs (data is stored in code segment)
+    mov bx, cs
+    mov ds, bx
+
+    ; si --> preambula for regs and flags dump
+    mov si, offset DumpStartLines
+
+    ; set color for regs dump
+    mov ah, RED_ON_BLACK
+
+    ; DI = start position in vram for regs dump
+    ; -4 for centering
+	mov di, (SCREEN_WIDTH * 2 + SCREEN_WIDTH / 2 - 4) * 2
+
+    call DrawRegs
+
+    ; DI = start position in vram for flags dump
+    ; + 6 for skipping registers
+    mov di, (SCREEN_WIDTH * 2 + SCREEN_WIDTH / 2 + 6) * 2
+
+    call DrawFlags
+
+    ret
+
+DrawRegsDumpData endp
 
 ;--------------------------------------------------------------------------------
 ; Short:   Draws registers values with preambula in vram
