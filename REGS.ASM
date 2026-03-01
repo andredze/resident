@@ -9,7 +9,9 @@ locals @@
 
 VIDEO_SEG		            equ 0b800h
 SCREEN_WIDTH	            equ 80d
+
 YELLOW_ON_RED	            equ 4eh
+RED_ON_GRAY 	            equ 74h
 
 JMP_BYTECODE                equ 0eah
 
@@ -59,11 +61,13 @@ FlagsStruct struc
 FlagsStruct ends
 
 ; --------------------------------- START ----------------------------------
-; //TODO: --> flags in different struct + function DrawFlags
+; //TODO: --> rewrite drawX + make it on registers and with arguments
 ; function clear screen on different scan code
+; savebuffer and drawbuffer
 ; documentation + no copy paste
-; + maybe rename struct fields
-; + read about flags in thelp
+; add DrawFrame (maybe through inc)
+; in frame add symbols from terminal
+; //TODO: README
 
 Start:
 	call Main
@@ -91,11 +95,6 @@ Main proc
 
 	call GetStdKeyboardInterrupt
 	call SetKeyboardInterrupt
-
-    ; mov ax, 4E4Eh
-    ; call RegsDump
-
-    ; int 09h
 
 	ret
 
@@ -164,7 +163,7 @@ SetKeyboardInterrupt endp
 MyKeyboardInterrupt proc
 
 	; int shouldn't destroy
-	push ax bx cx dx di si bp sp es ds
+	push ax bx cx dx di si bp es ds
 
 	push ax
 
@@ -187,7 +186,7 @@ MyKeyboardInterrupt proc
 @@End:
     call ResetController
 
-	pop ds es sp bp si di dx cx bx ax
+	pop ds es bp si di dx cx bx ax
 
 	; jmp (0eah) StdKbIntSegment : StdKbIntIndex
 	; in reverse cause of Little-Endian
@@ -199,21 +198,6 @@ MyKeyboardInterrupt endp
 ; so it jumps to the old keyboard interrupt
 StdKeyboardInterruptIndex	dw ?
 StdKeyboardInterruptSegment	dw ?
-
-;--------------------------------------------------------------------------------
-; Short:   Sets arguments needed to use vram
-; Out:     ES = Video segment
-; Destroy: AX
-;--------------------------------------------------------------------------------
-
-InitVram proc
-
-	mov ax, VIDEO_SEG
-	mov es, ax
-
-	ret
-
-InitVram endp
 
 ;--------------------------------------------------------------------------------
 ; Short:   Resets Keyboard Controller and sends an EOI to an Int Controller
@@ -252,7 +236,27 @@ RegsDump proc
 
     call StoreFlagsValues
 
+    ; set df = 0 in case it's 1
+    cld
+
+    ; ES = Video segment
+	mov ax, VIDEO_SEG
+	mov es, ax
+
+	; ds = cs (data is stored in code segment)
+    mov bx, cs
+    mov ds, bx
+
+    ; si --> preambula for regs and flags dump
+    mov si, offset DumpStartLines
+
     call DrawRegs
+
+    mov ah, RED_ON_GRAY
+
+    ; DI = start position in vram for flags dump
+    ; + 6 for skipping registers
+    mov di, (SCREEN_WIDTH * 2 + SCREEN_WIDTH / 2 + 6) * 2
 
     call DrawFlags
 
@@ -270,9 +274,9 @@ RegsDump endp
 ;------------------------------------
 ; + 2 for StoreRegsValues call addr
 ; + 2 for RegsDumpCall call addr
-; + 10 * 2 for saved regs in MyKeyboardInterrupt
+; + 9 * 2 for saved regs in MyKeyboardInterrupt
 ; = 24
-MY_STACK_SHIFT equ 24
+MY_STACK_SHIFT equ 22
 ;------------------------------------
 
 StoreRegsValues proc
@@ -399,7 +403,7 @@ StoreFlagsValues proc
 StoreFlagsValues endp
 
 ;--------------------------------------------------------------------------------
-; Short:   -
+; Short:   Draws registers values with preambula in vram
 ; Exp:     -
 ; In:      -
 ; Out:     -
@@ -408,18 +412,8 @@ StoreFlagsValues endp
 
 DrawRegs proc
 
-    ; set df = 0 in case it's 1
-    cld
-
-    call InitVram
-
     ; set drawing pos (-4 for centering)
 	mov di, (SCREEN_WIDTH * 2 + SCREEN_WIDTH / 2 - 4) * 2
-    mov si, offset DumpStartLines
-
-	; set data pos in ds:[si]
-    mov bx, cs
-    mov ds, bx
 
     mov cx, REGS_DUMP_ITERS
 
@@ -449,44 +443,78 @@ DrawRegs proc
 DrawRegs endp
 
 ;--------------------------------------------------------------------------------
-; Short:   -
-; Exp:     -
-; In:      -
-; Out:     -
-; Destroy: -
+; Short:   Dumps flags with preambula in vram
+; Exp:     CS:[FlagsValues] --> bytes with flags values
+; In:      AH = color
+;          ES:[DI] = start position to draw flags
+;          CS:[SI] = start of flags preambula text in memory
+; Destroy: AL, BL, CX, DI, SI, BP
 ;--------------------------------------------------------------------------------
 
 DrawFlags proc
 
-    ; + 6 for skipping registers
-    mov di, (SCREEN_WIDTH * 2 + SCREEN_WIDTH / 2 + 6) * 2
-
+    ; cx = flags count
     mov cx, FLAGS_DUMP_ITERS
-
+    ; bp --> struct with stored flags bits
     mov bp, offset FlagsValues
 
-;------------------------------------
 @@NextFlag:
 
-    mov ax, cs:[bp]
-	push si di
-    mov dx, 3d
-    call DrawSingleReg
-    pop di si
+    push di cx
+    call DrawSingleFlag
+    pop cx di
+
+    ; Note: CS:[SI] --> next flag preambula line
+    ; in memory automatically
 
     ; newline
     add di, (SCREEN_WIDTH * 2)
-    add si, FLAGS_DUMP_LINE_START_LEN
 
     ; to get next flag from memory
     add bp, 1
 
     loop @@NextFlag
-;------------------------------------
 
     ret
 
 DrawFlags endp
+
+;--------------------------------------------------------------------------------
+; Short:   Dumps current flag in vram with preambula (example: c = 1)
+; Exp:
+; In:      AH = color of symbols
+;          ES:[DI] --> pos in vram to draw
+;          CS:[SI] --> flag preambula in memory
+;          CS:[BP] --> flag value byte in memory
+; Out:     CS:[SI] --> next flag preambula line in memory
+; Destroy: AL, BL, CL, DI
+;--------------------------------------------------------------------------------
+
+DrawSingleFlag proc
+
+    ; draw preambula text for flag: "XF = "
+    ; after this call:
+    ; DI --> vram pos after written preambula text
+    ; SI --> next flag preambula line in memory
+    call DrawData
+
+    ; bl = flag value from memory
+    mov byte ptr bl, cs:[bp]
+
+    ; cl = ascii code of a symbol
+    call ConvertHexDigitToAscii
+
+    ; al = ascii code
+    ; ah = color (from arguments)
+    mov al, cl
+
+    ; draw flag value in vram
+    ; es[di] = ax; di += 2
+    stosw
+
+    ret
+
+DrawSingleFlag endp
 
 ;--------------------------------------------------------------------------------
 ; Short:   -
@@ -675,24 +703,33 @@ ConvertHexDigitToAscii endp
 ;          DI --> vram position to write
 ;          AH = data color
 ; Destroy: AL, CX, DI, SI
+; Out:     SI --> data after '$'
 ;--------------------------------------------------------------------------------
 
 DrawData proc
 
+    ; limit iterations in case there is no '$'
     mov cx, MAX_ITERS
 
     @@Next:
+        ; al = symbol ascii code
         mov byte ptr al, cs:[si]
 
+        ; if (al == '$') --> end
         cmp al, END_STR
         je @@End
 
+        ; es:[di] = ax; di += 2
         stosw
+        ; get next symbol from memory
         inc si
 
     loop @@Next
 
     @@End:
+
+    ; skip last '$' (end term)
+    inc si
 
     ret
 
