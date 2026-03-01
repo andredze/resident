@@ -93,13 +93,11 @@ FlagsStruct struc
 FlagsStruct ends
 
 ; --------------------------------- START ----------------------------------
-; //TODO: --> rewrite drawX + make it on registers and with arguments
-; function clear screen on different scan code
-; int for timer
-; savebuffer and drawbuffer
 ; add DrawFrame (maybe through inc)
 ; in frame add symbols from terminal
-; //TODO: README
+; in frame add middle symbols and store them with space by default
+; //TODO: README for resident
+; //TODO: clear github from unnecessary files
 
 Start:
 	call Main
@@ -454,15 +452,12 @@ MyKeyboardInterrupt proc
 @@HandleStartTimer:
 
     pop ax
-
     mHandleTimerChange 01h, InitBuffersAndVram
-
     jmp @@End
 
 @@HandleStopTimer:
 
     pop ax
-
     mHandleTimerChange 00h, ClearScreenAndReset
 
 @@End:
