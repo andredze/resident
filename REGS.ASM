@@ -114,8 +114,8 @@ DumpStartLines      db 'AX = $', 'BX = $', 'CX = $', 'DX = $'
                     db 's = $', 't = $', 'i = $', 'd = $'
                     db 'o = $'
 
-DrawBuffer          dw SCREEN_SIZE DUP(0)
-SaveBuffer          dw SCREEN_SIZE DUP(0)
+DrawBuffer          dw FRAME_SIZE DUP(0)
+SaveBuffer          dw FRAME_SIZE DUP(0)
 
 ; ---------------------------------- CODE ----------------------------------
 
@@ -285,12 +285,12 @@ MakeTimerIteration endp
 
 CompareAndRestoreBuffers proc
     ; compare DrawBuffer and vram --> if not equal:
-    ; than copy new vram symbol to SafeBuffer and DrawBuffer
+    ; than copy new vram symbol to SaveBuffer and DrawBuffer
 
-    ; ES:[DI] --> Vram
-    xor di, di
+    ; ES:[DI] --> frame in vram
     mov ax, VIDEO_SEG
     mov es, ax
+    mov di, VIDEO_FRAME_POS
 
     ; DS:[SI] --> DrawBuffer
     mov si, offset DrawBuffer
@@ -300,7 +300,11 @@ CompareAndRestoreBuffers proc
     ; DS:[BX] --> SaveBuffer
     mov bx, offset SaveBuffer
 
-    mov cx, SCREEN_SIZE
+    ; cx = counter for loop
+    mov cx, FRAME_SIZE
+    ; bp = counter for one line
+    ; (to know when to go to next line)
+    mov bp, FRAME_WIDTH
 
     @@Next:
         ; ax = symbol in DrawBuffer
@@ -322,6 +326,18 @@ CompareAndRestoreBuffers proc
         add si, 2
         add bx, 2
         add di, 2
+
+        dec bp
+
+        ; if went 1 buffer line --> make enter in vram
+        cmp bp, 0
+        jne @@NotGotoNextLine
+        ; restart counter
+        mov bp, FRAME_WIDTH
+        ; make new line
+        add di, (SCREEN_WIDTH - FRAME_WIDTH) * 2
+        ; else --> continue
+        @@NotGotoNextLine:
 
     loop @@Next
 
@@ -488,7 +504,7 @@ StdKeyboardInterruptSegment	dw ?
 
 InitBuffersAndVram proc
 
-    push ax cx dx si di
+    push ax bx cx dx si di
     ; copy vram in SaveBuffer
     mov di, offset SaveBuffer
     call CopyVramToBuffer
@@ -497,7 +513,7 @@ InitBuffersAndVram proc
     mov di, offset DrawBuffer
     call CopyVramToBuffer
 
-    pop di si dx cx ax
+    pop di si dx cx bx ax
     ; draw frame with regs in DrawBuffer
     call RegsDump
 
@@ -530,10 +546,11 @@ ClearScreenAndReset proc
 ClearScreenAndReset endp
 
 ;--------------------------------------------------------------------------------
-; Short:   Copies screen buffer to the vram
-; In:      CS:[SI] --> screen buffer
-; Out:     ES:[00] --> copy of the screen buffer
-; Destroy: AX, CX, DX, SI, DI
+; Short:   Copies frame buffer to the vram
+; In:      CS:[SI] --> frame buffer
+; Out:     ES:[VIDEO_FRAME_POS] --> copy of the frame buffer
+;                                   buffer is drawn in vram in a rectangle
+; Destroy: AX, BX, CX, SI, DI
 ;--------------------------------------------------------------------------------
 
 CopyBufferToVram proc
@@ -550,11 +567,14 @@ CopyBufferToVram proc
 
     ; SI --> Buffer
 
-    mov cx, (SCREEN_WIDTH * SCREEN_HEIGHT)
+    mov cx, FRAME_SIZE
     ; copy buffer to the vram
 
-    ; di = 0 (start of the vram)
-    xor di, di
+    ; di = start of the frame position
+    mov di, VIDEO_FRAME_POS
+
+    ; bx = one line len (counter for going to new line)
+    mov bx, FRAME_WIDTH
 
     cld
 
@@ -563,6 +583,18 @@ CopyBufferToVram proc
     ; es:[di+=2] = ax
         lodsw
         stosw
+
+        dec bx
+
+        ; if drew 1 buffer line --> make enter in vram
+        cmp bx, 0
+        jne @@NotGotoNewLine
+        ; restart counter
+        mov bx, FRAME_WIDTH
+        ; make new line
+        add di, (SCREEN_WIDTH - FRAME_WIDTH) * 2
+        ; else --> continue
+        @@NotGotoNewLine:
 
     loop @@Next
 
@@ -573,8 +605,8 @@ CopyBufferToVram proc
 CopyBufferToVram endp
 
 ;--------------------------------------------------------------------------------
-; Short:   Copies vram to the screen buffer
-; In:      CS:[DI] --> screen buffer
+; Short:   Copies vram to the frame buffer
+; In:      CS:[DI] --> frame buffer
 ; Destroy: AX, CX, SI, DI
 ;--------------------------------------------------------------------------------
 
@@ -592,11 +624,14 @@ CopyVramToBuffer proc
 
     ; DI --> Buffer
 
-    mov cx, (SCREEN_WIDTH * SCREEN_HEIGHT)
+    mov cx, FRAME_SIZE
     ; copy buffer to the vram
 
-    ; si = 0 (start of vram)
-    xor si, si
+    ; si = start of the frame position in vram
+    mov si, VIDEO_FRAME_POS
+
+    ; bx = one line len (counter for going to new line)
+    mov bx, FRAME_WIDTH
 
     cld
 
@@ -605,6 +640,19 @@ CopyVramToBuffer proc
     ; es:[di+=2] = ax
         lodsw
         stosw
+
+        dec bx
+
+        ; if drew 1 buffer line --> make enter in vram
+        cmp bx, 0
+        jne @@NotGotoNewLine
+        ; restart counter
+        mov bx, FRAME_WIDTH
+        ; make new line
+        add si, (SCREEN_WIDTH - FRAME_WIDTH) * 2
+        ; else --> continue
+        @@NotGotoNewLine:
+
     loop @@Next
 
     pop es ds
@@ -683,10 +731,8 @@ DrawFramePart proc
     mov dx, FRAME_HEIGHT
     mov bx, FRAME_WIDTH
 
-    ; DI = start position in vram for frame
-    ; 2 lines and 2 symbols before draw regs
+    ; DI = start position in buffer for frame (zero)
     mov di, offset DrawBuffer
-    add di, VIDEO_FRAME_POS
 
     push ax cx di si
     call DrawFrame
@@ -863,16 +909,16 @@ DrawRegsDumpData proc
     mov ah, RED_ON_GRAY
 
     ; DI = start position in vram for regs dump
-    ; -4 for centering
+    ; (newline + 1)
     mov di, offset DrawBuffer
-    add di, (SCREEN_WIDTH * 2 + SCREEN_WIDTH / 2 - 4) * 2
+    add di, (FRAME_WIDTH + 1) * 2
 
     call DrawRegs
 
     ; DI = start position in vram for flags dump
-    ; + 6 for skipping registers
+    ; + 10 for skipping registers
     mov di, offset DrawBuffer
-    add di, (SCREEN_WIDTH * 2 + SCREEN_WIDTH / 2 + 6) * 2
+    add di, (FRAME_WIDTH + 1) * 2 + 10 * 2
 
     call DrawFlags
 
@@ -906,7 +952,7 @@ DrawRegs proc
     ; in memory automatically
 
     ; newline
-    add di, (SCREEN_WIDTH * 2)
+    add di, (FRAME_WIDTH * 2)
     ; to get next reg from memory
     add bp, 2
 
@@ -988,7 +1034,7 @@ DrawFlags proc
     ; in memory automatically
 
     ; newline
-    add di, (SCREEN_WIDTH * 2)
+    add di, (FRAME_WIDTH * 2)
 
     ; to get next flag from memory
     add bp, 1
@@ -1195,17 +1241,11 @@ DrawFrame proc
 
 ; Draw top line
 ;------------------------------------
-    ; save lu corner pos in stack
-    push di
-
     ; get top symbols
     add si, LuCorner
     call DrawHorizontalLine
 
-    pop di
-
-    ; new line
-    add di, (SCREEN_WIDTH * 2)
+    ; new line is not needed (buffer width is frame width)
 ;------------------------------------
 
 ; Draw middle part
@@ -1219,12 +1259,11 @@ DrawFrame proc
     sub cx, 2
 
     @@Next:
-        push cx si di
+        push cx si
         call DrawHorizontalLine
-        pop di si cx
+        pop si cx
 
-        ; new line
-        add di, (SCREEN_WIDTH * 2)
+        ; new line not needed (buffer)
     loop @@Next
 ;------------------------------------
 
@@ -1295,23 +1334,15 @@ DrawHorizontalLine endp
 
 DrawFrameBackground proc
 
-    ; save bp
-    push bp
-
     ; si = iterator for lines
     mov si, dx
-
-    ; bp = 2 * (SCREEN_WIDTH - FRAME_WIDTH)
-    ; bp = shift for DI in loop
-    mov bp, (SCREEN_WIDTH)
-    sub bp, bx
-    shl bp, 1
 
     @@NextLine:
         ; cx = iterator for columns
         mov cx, bx
 
         @@NextSymbol:
+            ; set bg bits only
             and byte ptr es:[di + 1], ZERO_BG_COLOR
             or  byte ptr es:[di + 1], ah
 
@@ -1319,19 +1350,16 @@ DrawFrameBackground proc
 
         loop @@NextSymbol
 
-        ; move to the next line start
-        add di, bp
-
         dec si
 
     cmp si, 0
     jnz @@NextLine
 
-    pop bp
-
     ret
 
 DrawFrameBackground endp
+
+;--------------------------------------------------------------------------------
 
 RegsFrameStyle FrameStyle <         \
     (             BRT_RED * 100h),  \
