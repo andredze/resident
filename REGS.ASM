@@ -33,7 +33,7 @@ FRAME_HEIGHT                equ 15d
 FRAME_WIDTH                 equ 19d
 FRAME_SIZE                  equ FRAME_WIDTH * FRAME_HEIGHT
 
-VIDEO_FRAME_POS             equ (SCREEN_WIDTH * 1 + SCREEN_WIDTH / 2 - 4 - 2) * 2
+VIDEO_FRAME_POS             equ (SCREEN_WIDTH * 4 + SCREEN_WIDTH / 2 + 16) * 2
 
 HORIZ_LINE                  equ 0cdh
 VERT_LINE                   equ 0bah
@@ -909,16 +909,16 @@ DrawRegsDumpData proc
     mov ah, RED_ON_GRAY
 
     ; DI = start position in vram for regs dump
-    ; (newline + 1)
+    ; (newline + 2)
     mov di, offset DrawBuffer
-    add di, (FRAME_WIDTH + 1) * 2
+    add di, (FRAME_WIDTH + 2) * 2
 
     call DrawRegs
 
     ; DI = start position in vram for flags dump
     ; + 10 for skipping registers
     mov di, offset DrawBuffer
-    add di, (FRAME_WIDTH + 1) * 2 + 10 * 2
+    add di, (FRAME_WIDTH + 2) * 2 + 10 * 2
 
     call DrawFlags
 
