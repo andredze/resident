@@ -96,7 +96,7 @@ FlagsStruct ends
 
 Start:
 	call Main
-	call Exit
+	jmp  Exit
 
 ; ---------------------------------- DATA ----------------------------------
 
@@ -146,7 +146,7 @@ GetStdTimerInterrupt proc
 
 	; Direct realisation
 	; Interrupt Table segment
-	mov bx, 00h
+	xor bx, bx
 	mov es, bx
 
 	; TimerInterrupt offset
@@ -173,7 +173,7 @@ SetMyTimerInterrupt proc
 
 	; Direct realisation
 	; Interrupt table segment
-	mov ax, 00h
+	xor ax, ax
 	mov es, ax
 
 	; 4 bytes = function address size
@@ -208,7 +208,7 @@ SetDefaultTimerInterrupt proc
 
 	; Direct realisation
 	; Interrupt table segment
-	mov ax, 00h
+	xor ax, ax
 	mov es, ax
 
 	; 4 bytes = function address size
@@ -249,12 +249,12 @@ MyTimerInterrupt proc
 	; in reverse cause of Little-Endian
 	db JMP_BYTECODE
 
-MyTimerInterrupt endp
-
 ; cpu interprets this two words as args for jmp command
 ; so it jumps to the old keyboard interrupt
 StdTimerInterruptOffset	    dw ?
 StdTimerInterruptSegment	dw ?
+
+MyTimerInterrupt endp
 
 ;--------------------------------------------------------------------------------
 ; Short:   Refreshes DrawBuffer and SaveBuffer if needed,
@@ -357,7 +357,7 @@ GetStdKeyboardInterrupt proc
 
 	; Direct realisation
 	; Interrupt Table segment
-	mov bx, 00h
+	xor bx, bx
 	mov es, bx
 
 	; KeyboardInterrupt offset
@@ -384,7 +384,7 @@ SetMyKeyboardInterrupt proc
 
 	; Direct realisation
 	; Interrupt table segment
-	mov ax, 00h
+	xor ax, ax
 	mov es, ax
 
 	; 4 bytes = function address size
@@ -488,12 +488,12 @@ MyKeyboardInterrupt proc
 	; in reverse cause of Little-Endian
 	db JMP_BYTECODE
 
-MyKeyboardInterrupt endp
-
 ; cpu interprets this two words as args for jmp command
 ; so it jumps to the old keyboard interrupt
 StdKeyboardInterruptOffset	dw ?
 StdKeyboardInterruptSegment	dw ?
+
+MyKeyboardInterrupt endp
 
 ;--------------------------------------------------------------------------------
 ; Short:   Makes first timer iteration and starts timer:
@@ -978,7 +978,7 @@ DrawSingleReg proc
     ; after this call:
     ; DI --> vram pos after written preambula text
     ; SI --> next reg preambula line in memory
-    call DrawData
+    call DrawString
 
     ; save new preambula position
     push si
@@ -998,7 +998,7 @@ DrawSingleReg proc
     ; restore AH = color value
     pop ax
 
-    call DrawData
+    call DrawString
 
     ; restore new preambula position
     pop si
@@ -1060,7 +1060,7 @@ DrawSingleFlag proc
     ; after this call:
     ; DI --> vram pos after written preambula text
     ; SI --> next flag preambula line in memory
-    call DrawData
+    call DrawString
 
     ; bl = flag value from memory
     mov byte ptr bl, cs:[bp]
@@ -1191,7 +1191,7 @@ ConvertHexDigitToAscii endp
 ;          DI --> vram after last symbol
 ;--------------------------------------------------------------------------------
 
-DrawData proc
+DrawString proc
 
     ; limit iterations in case there is no '$'
     mov cx, MAX_ITERS
@@ -1218,7 +1218,7 @@ DrawData proc
 
     ret
 
-DrawData endp
+DrawString endp
 
 ;================================================================================
 ; ------------------------------- FRAME_CODE -------------------------------
