@@ -130,7 +130,8 @@ Main proc
 
     call GetStdTimerInterrupt
 	call GetStdKeyboardInterrupt
-	call SetMyKeyboardInterrupt
+    ; tail call --> ret of inside function will return from our function
+    jmp SetMyKeyboardInterrupt
 
 	ret
 
@@ -239,11 +240,25 @@ SetDefaultTimerInterrupt endp
 MyTimerInterrupt proc
 
 	; int shouldn't destroy
-	push ax bx cx dx di si bp es ds
+	push ds es bp si di dx cx bx ax
 
-    call MakeTimerIteration
+    ; save registers in memory
+    call StoreRegsValues
+    call StoreFlagsValues
 
-	pop ds es bp si di dx cx bx ax
+    ; refresh DrawBuffer and SaveBuffer if needed,
+    ; draw frame with regs in DrawBuffer and vram
+    call CompareAndRestoreBuffers
+
+    ; draw frame with regs in DrawBuffer
+    call DrawFramePart
+    call DrawRegsDumpData
+
+    ; copy DrawBuffer in vram
+    mov si, offset DrawBuffer
+    call CopyBufferToVram
+
+	pop ax bx cx dx di si bp es ds
 
 	; jmp (0eah) StdTimerIntSegment : StdTimerIntOffset
 	; in reverse cause of Little-Endian
@@ -255,29 +270,6 @@ StdTimerInterruptOffset	    dw ?
 StdTimerInterruptSegment	dw ?
 
 MyTimerInterrupt endp
-
-;--------------------------------------------------------------------------------
-; Short:   Refreshes DrawBuffer and SaveBuffer if needed,
-;          draws frame with regs in DrawBuffer and vram
-; Destroy: AX, BX, CX, DX, SI, DI, BP, DS, ES
-;--------------------------------------------------------------------------------
-
-MakeTimerIteration proc
-
-    push ax bx cx dx di si es ds
-    call CompareAndRestoreBuffers
-    pop ds es si di dx cx bx ax
-
-    ; draw frame with regs in DrawBuffer
-    call RegsDump
-
-    ; copy DrawBuffer in vram
-    mov si, offset DrawBuffer
-    call CopyBufferToVram
-
-    ret
-
-MakeTimerIteration endp
 
 ;--------------------------------------------------------------------------------
 ; Short:   Compares DrawBuffer with vram, if not equal -->
@@ -461,8 +453,11 @@ MyKeyboardInterrupt proc
     jmp @@NormalKeyboardInterrupt
 
 @@HandleStartTimer:
-
     pop ax
+
+    call StoreRegsValues
+    call StoreFlagsValues
+
     mHandleTimerChange 01h, InitBuffersAndVram
     jmp @@End
 
@@ -506,7 +501,6 @@ MyKeyboardInterrupt endp
 
 InitBuffersAndVram proc
 
-    push ax bx cx dx si di
     ; copy vram in SaveBuffer
     mov di, offset SaveBuffer
     call CopyVramToBuffer
@@ -515,16 +509,17 @@ InitBuffersAndVram proc
     mov di, offset DrawBuffer
     call CopyVramToBuffer
 
-    pop di si dx cx bx ax
     ; draw frame with regs in DrawBuffer
-    call RegsDump
+    call DrawFramePart
+    call DrawRegsDumpData
 
     ; copy DrawBuffer in vram
     mov si, offset DrawBuffer
     call CopyBufferToVram
 
     ; set TimerInterrupt 08h to regs dump
-    call SetMyTimerInterrupt
+    ; tail call --> ret of inside function will return from our function
+    jmp SetMyTimerInterrupt
 
     ret
 
@@ -541,7 +536,8 @@ ClearScreenAndReset proc
     mov si, offset SaveBuffer
     call CopyBufferToVram
 
-    call SetDefaultTimerInterrupt
+    ; tail call --> ret of inside function will return from our function
+    jmp SetDefaultTimerInterrupt
 
     ret
 
@@ -690,27 +686,6 @@ ResetController proc
 ResetController endp
 
 ;--------------------------------------------------------------------------------
-; Short:   Dumps registers in vram
-; Destroy: AX, BX, CX, DX, DI, SI, DS, ES
-;--------------------------------------------------------------------------------
-
-RegsDump proc
-
-    push ax bx cx dx si di ds es
-    call DrawFramePart
-    pop es ds di si dx cx bx ax
-
-    call StoreRegsValues
-
-    call StoreFlagsValues
-
-    call DrawRegsDumpData
-
-    ret
-
-RegsDump endp
-
-;--------------------------------------------------------------------------------
 ; Short:   Draws frame and it's bg in DrawBuffer
 ; Destroy: AX, BX, CX, DX, SI, DI, DS, ES
 ;--------------------------------------------------------------------------------
@@ -736,9 +711,8 @@ DrawFramePart proc
     ; DI = start position in buffer for frame (zero)
     mov di, offset DrawBuffer
 
-    push ax cx di si
-    call DrawFrame
-    pop si di cx ax
+    ; tail call --> ret of inside function will return from our function
+    jmp DrawFrame
 
     ret
 
@@ -753,11 +727,9 @@ DrawFramePart endp
 
 ;------------------------------------
 ; + 2 for StoreRegsValues call addr
-; + 2 for RegsDumpCall call addr
-; + 2 for func call addr
-; + 10 * 2 for saved regs in MyKeyboardInterrupt
-; = 24
-MY_STACK_SHIFT equ 24
+; + 9 * 2 for saved regs in MyInterrupt
+; = 20
+MY_STACK_SHIFT equ 20
 ;------------------------------------
 
 StoreRegsValues proc
@@ -919,7 +891,8 @@ DrawRegsDumpData proc
     mov di, offset DrawBuffer
     add di, (FRAME_WIDTH + 2) * 2 + 10 * 2
 
-    call DrawFlags
+    ; tail call --> ret of inside function will return from our function
+    jmp DrawFlags
 
     ret
 
@@ -1103,7 +1076,8 @@ ConvertIntToString proc
     ; al = al (get the saved value)
     pop ax
 
-    call ConvertByteToString
+    ; tail call --> ret of inside function will return from our function
+    jmp ConvertByteToString
 
     ret
 
@@ -1271,7 +1245,9 @@ DrawFrame proc
     ; get bottom symbols
     ; shift for SI = add 2 bytes * 3 symbols are in 1 line
     add si, (2 * 03d)
-    call DrawHorizontalLine
+
+    ; tail call --> ret of inside function will return from our function
+    jmp DrawHorizontalLine
 ;------------------------------------
 
     ret
@@ -1354,8 +1330,6 @@ Exit proc
 
 	; call interruption for DOS funcs
 	int 21h
-
-	ret
 
 Exit endp
 
