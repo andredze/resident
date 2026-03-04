@@ -12,6 +12,8 @@ SCREEN_WIDTH	            equ 80d
 SCREEN_HEIGHT               equ 25d
 SCREEN_SIZE                 equ SCREEN_WIDTH * SCREEN_HEIGHT
 
+INT_ADDRESS_LEN             equ 4d
+
 YELLOW_ON_RED	            equ 4eh
 RED_ON_GRAY 	            equ 74h
 
@@ -135,7 +137,7 @@ Main proc
 Main endp
 
 ;--------------------------------------------------------------------------------
-; Short:   Sets variables for index and segment of
+; Short:   Sets variables for offset and segment of
 ;		   timer interrupt to a standard DOS call
 ; Destroy: AX, BX, ES
 ;--------------------------------------------------------------------------------
@@ -147,11 +149,11 @@ GetStdTimerInterrupt proc
 	mov bx, 00h
 	mov es, bx
 
-	; TimerInterrupt index
-	mov bx, 4 * 08h
+	; TimerInterrupt offset
+	mov bx, INT_ADDRESS_LEN * 08h
 
 	mov ax, es:[bx]
-	mov cs:[StdTimerInterruptIndex], ax
+	mov cs:[StdTimerInterruptOffset], ax
 
 	mov ax, es:[bx + 2]
 	mov cs:[StdTimerInterruptSegment], ax
@@ -176,11 +178,11 @@ SetMyTimerInterrupt proc
 
 	; 4 bytes = function address size
 	; 08h = interrupt: IRQ 0 Timer
-	mov bx, 4 * 08h
+	mov bx, INT_ADDRESS_LEN * 08h
 
 	; prohibit interrupts (IF = 0)
 	cli
-    ; put my timer interrupt index
+    ; put my timer interrupt offset
 	mov es:[bx], offset MyTimerInterrupt
     ; put my timer interrupt segment
 	mov ax, cs
@@ -194,7 +196,7 @@ SetMyTimerInterrupt endp
 
 ;--------------------------------------------------------------------------------
 ; Short:   Sets default timer interrupt back (08h)
-; Exp:     StdTimerInterruptIndex   = interrupt 08h function index
+; Exp:     StdTimerInterruptOffset  = interrupt 08h function offset
 ;          StdTimerInterruptSegment = interrupt 08h function segment
 ; Destroy: AX, BX, ES
 ; Note:    sets IF = 1
@@ -211,12 +213,12 @@ SetDefaultTimerInterrupt proc
 
 	; 4 bytes = function address size
 	; 08h = interrupt: IRQ 0 Timer
-	mov bx, 4 * 08h
+	mov bx, INT_ADDRESS_LEN * 08h
 
 	; prohibit interrupts (IF = 0)
 	cli
-    ; put my timer interrupt index
-    mov di, cs:[StdTimerInterruptIndex]
+    ; put my timer interrupt offset
+    mov di, cs:[StdTimerInterruptOffset]
 	mov es:[bx], di
     ; put my timer interrupt segment
     mov di, cs:[StdTimerInterruptSegment]
@@ -243,7 +245,7 @@ MyTimerInterrupt proc
 
 	pop ds es bp si di dx cx bx ax
 
-	; jmp (0eah) StdTimerIntSegment : StdTimerIntIndex
+	; jmp (0eah) StdTimerIntSegment : StdTimerIntOffset
 	; in reverse cause of Little-Endian
 	db JMP_BYTECODE
 
@@ -251,7 +253,7 @@ MyTimerInterrupt endp
 
 ; cpu interprets this two words as args for jmp command
 ; so it jumps to the old keyboard interrupt
-StdTimerInterruptIndex	    dw ?
+StdTimerInterruptOffset	    dw ?
 StdTimerInterruptSegment	dw ?
 
 ;--------------------------------------------------------------------------------
@@ -346,7 +348,7 @@ CompareAndRestoreBuffers proc
 CompareAndRestoreBuffers endp
 
 ;--------------------------------------------------------------------------------
-; Short:   Sets variables for index and segment of
+; Short:   Sets variables for offset and segment of
 ;		   keyboard interrupt to a standard DOS call
 ; Destroy: AX, BX, ES
 ;--------------------------------------------------------------------------------
@@ -358,11 +360,11 @@ GetStdKeyboardInterrupt proc
 	mov bx, 00h
 	mov es, bx
 
-	; KeyboardInterrupt index
-	mov bx, 4 * 09h
+	; KeyboardInterrupt offset
+	mov bx, INT_ADDRESS_LEN * 09h
 
 	mov ax, es:[bx]
-	mov cs:[StdKeyboardInterruptIndex], ax
+	mov cs:[StdKeyboardInterruptOffset], ax
 
 	mov ax, es:[bx + 2]
 	mov cs:[StdKeyboardInterruptSegment], ax
@@ -387,7 +389,7 @@ SetMyKeyboardInterrupt proc
 
 	; 4 bytes = function address size
 	; 09h = interrupt: IRQ 1 Keyboard
-	mov bx, 4 * 09h
+	mov bx, INT_ADDRESS_LEN * 09h
 
 	; prohibit interrupts (IF = 0)
 	cli
@@ -482,7 +484,7 @@ MyKeyboardInterrupt proc
 
     pop es ds bp di si dx cx bx ax
 
-	; jmp (0eah) StdKbIntSegment : StdKbIntIndex
+	; jmp (0eah) StdKbIntSegment : StdKbIntOffset
 	; in reverse cause of Little-Endian
 	db JMP_BYTECODE
 
@@ -490,7 +492,7 @@ MyKeyboardInterrupt endp
 
 ; cpu interprets this two words as args for jmp command
 ; so it jumps to the old keyboard interrupt
-StdKeyboardInterruptIndex	dw ?
+StdKeyboardInterruptOffset	dw ?
 StdKeyboardInterruptSegment	dw ?
 
 ;--------------------------------------------------------------------------------
@@ -737,9 +739,6 @@ DrawFramePart proc
     push ax cx di si
     call DrawFrame
     pop si di cx ax
-
-    mov ax, [si + BGColor]
-    call DrawFrameBackground
 
     ret
 
@@ -1321,58 +1320,19 @@ DrawHorizontalLine proc
 DrawHorizontalLine endp
 
 ;--------------------------------------------------------------------------------
-; Short:   Draws background for the frame
-; Exp:     ES = Video Segment
-;          DF = 0
-; In:      DI = pos of the lu frame corner
-;          BX = frame width
-;          DX = frame height
-;          AH = background color
-; Out:     -
-; Destroy: SI, DI, CX
-;--------------------------------------------------------------------------------
-
-DrawFrameBackground proc
-
-    ; si = iterator for lines
-    mov si, dx
-
-    @@NextLine:
-        ; cx = iterator for columns
-        mov cx, bx
-
-        @@NextSymbol:
-            ; set bg bits only
-            and byte ptr es:[di + 1], ZERO_BG_COLOR
-            or  byte ptr es:[di + 1], ah
-
-            add di, 2
-
-        loop @@NextSymbol
-
-        dec si
-
-    cmp si, 0
-    jnz @@NextLine
-
-    ret
-
-DrawFrameBackground endp
-
-;--------------------------------------------------------------------------------
 
 RegsFrameStyle FrameStyle <         \
-    (             BRT_RED * 100h),  \
+    (             (BRT_RED + GRAY_BG) * 100h),  \
     (             GRAY_BG * 100h),  \
-    (LU_CORNER  + BRT_RED * 100h),  \
-    (HORIZ_LINE + BRT_RED * 100h),  \
-    (RU_CORNER  + BRT_RED * 100h),  \
-    (VERT_LINE  + BRT_RED * 100h),  \
-    (' '        + BRT_RED * 100h),  \
-    (VERT_LINE  + BRT_RED * 100h),  \
-    (LD_CORNER  + BRT_RED * 100h),  \
-    (HORIZ_LINE + BRT_RED * 100h),  \
-    (RD_CORNER  + BRT_RED * 100h)>
+    (LU_CORNER  + (BRT_RED + GRAY_BG) * 100h),  \
+    (HORIZ_LINE + (BRT_RED + GRAY_BG) * 100h),  \
+    (RU_CORNER  + (BRT_RED + GRAY_BG) * 100h),  \
+    (VERT_LINE  + (BRT_RED + GRAY_BG) * 100h),  \
+    (' '        + (BRT_RED + GRAY_BG) * 100h),  \
+    (VERT_LINE  + (BRT_RED + GRAY_BG) * 100h),  \
+    (LD_CORNER  + (BRT_RED + GRAY_BG) * 100h),  \
+    (HORIZ_LINE + (BRT_RED + GRAY_BG) * 100h),  \
+    (RD_CORNER  + (BRT_RED + GRAY_BG) * 100h)>
 
 ;================================================================================
 
