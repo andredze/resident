@@ -97,7 +97,7 @@ FlagsStruct ends
 
 Start:
 	call Main
-	jmp  Exit
+	jmp  ExitAndStayResident
 
 ; ---------------------------------- DATA ----------------------------------
 
@@ -1318,7 +1318,7 @@ RegsFrameStyle FrameStyle <                     \
 ; Destroy: AX DX
 ;--------------------------------------------------------------------------------
 
-Exit proc
+ExitAndStayResident proc
 
 	; DOS function 31 = Terminate & Stay Resident
 	mov ax, 3100h
@@ -1332,7 +1332,7 @@ Exit proc
 	; call interruption for DOS funcs
 	int 21h
 
-Exit endp
+ExitAndStayResident endp
 
 ;--------------------------------------------------------------------------------
 
