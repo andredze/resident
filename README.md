@@ -78,7 +78,7 @@ end Start
 ![example](https://github.com/andredze/resident/raw/master/example.png)
 
 # Screen saves
-Program remember the screen that was under the frame and refreshes with ll the changes
+Program remember the screen that was under the frame and refreshes with all the changes (triple-buffering)
 
 When pressed '~'
 ![pressed](https://github.com/andredze/resident/raw/master/pressed.png)
