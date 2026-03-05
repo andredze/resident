@@ -22,6 +22,7 @@ or
 ```
 
 To see the registers --> press the '~' button (tilda)
+
 To delete the frame  --> press the 'ESC' button (escape)
 
 ## Example

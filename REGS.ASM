@@ -21,6 +21,7 @@ JMP_BYTECODE                equ 0eah
 
 TILDA_SCAN_CODE             equ 29h
 ESC_SCAN_CODE               equ 01h
+TAB_SCAN_CODE               equ 0fh
 
 MAX_ITERS                   equ 200d
 
@@ -462,9 +463,9 @@ MyKeyboardInterrupt proc
     jmp @@End
 
 @@HandleStopTimer:
-
     pop ax
     mHandleTimerChange 00h, ClearScreenAndReset
+    jmp @@End
 
 @@End:
     call ResetController
