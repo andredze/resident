@@ -7,7 +7,7 @@
 
 ## Компиляция программы
 ```powershell
-    regs.bat
+    make_regs.bat
 ```
 или
 ```powershell
