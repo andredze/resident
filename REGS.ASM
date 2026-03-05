@@ -139,6 +139,93 @@ Main proc
 Main endp
 
 ;--------------------------------------------------------------------------------
+; Short:   Converts given value of digit into an ascii symbol of a hex digit
+; In:      BL = value of hex digit
+; Out:     CL = ascii code of a digit in hex
+;--------------------------------------------------------------------------------
+
+mHexDigitToAscii macro
+
+    ; cl will be ascii code
+    mov cl, bl
+
+    ; if digit --> add '0' ascii code
+    add cl, '0'
+    ; bl >= '0' + 10 --> represents in a letter
+    cmp cl, '0' + 10
+    ; skip next command (imitate label)
+    ; jl @@IsDigit
+    jl $+5
+
+    ; if not digit --> switch from '0' ascii code to 'A' ascii code
+    add cl, 'A' - '0' - 10
+; @@IsDigit:
+
+    endm
+
+;--------------------------------------------------------------------------------
+; Short:   Converts 1 byte in ascii str in hex and stores in data
+; Exp:     DS = segment with data
+; In:      DS:[SI] --> where to write data
+;          AL = value to write
+; Out:     SI += 2 (for wrote symbols)
+; Destroy: BL, CL
+;--------------------------------------------------------------------------------
+
+mConvertByteToString macro
+
+    ; store first High bits, then Low bits (Little-endian)
+
+    mov bl, al
+    ; get last 4 bits (high)
+    shr bl, 4
+
+    mHexDigitToAscii
+
+    mov ds:[si], cl
+    inc si
+
+    mov bl, al
+    ; get first 4 bits (low)
+    ; 0fh = lower byte mask 00001111b
+    and bl, 0fh
+
+    mHexDigitToAscii
+
+    mov ds:[si], cl
+    inc si
+
+    endm
+
+;--------------------------------------------------------------------------------
+; Short:   Converts integer (register value) into string in data at IntValueStr
+; In:      AX = value to convert
+; Out:     CS:[IntValueStr] = start of converted str
+; Destroy: AL, BL, CL, SI
+;--------------------------------------------------------------------------------
+
+mConvertIntToString macro
+
+    mov bx, cs
+    mov ds, bx
+    mov si, offset IntValueStr
+
+    push ax
+
+    ; al = ah (store in Little-endian)
+    mov al, ah
+
+    mConvertByteToString
+
+    ; al = al (get the saved value)
+    pop ax
+
+    ; tail call --> ret of inside function will return from our function
+    mConvertByteToString
+
+    endm
+
+;--------------------------------------------------------------------------------
 ; Short:   Sets variables for offset and segment of
 ;		   timer interrupt to a standard DOS call
 ; Destroy: AX, BX, ES
@@ -297,6 +384,16 @@ CompareAndRestoreBuffers proc
 
     ; cx = counter for loop
     mov cx, FRAME_SIZE
+
+; frame is stored in SaveBuffer and DrawBuffer continuously (line after line),
+; (sizeof DrawBuffer and sizeof SaveBuffer = FRAME_SIZE)
+; but (sizeof vram = SCREEN_SIZE)
+; but in vram every line of a frame is placed on the next line of video memory,
+; because of that when we copied 1 line of a frame we have to skip
+; 1 screen line in vram (+ SCREEN_WIDTH - FRAME_WIDTH)
+; for counting when to make this shift, BP is used:
+; when (BP == 0) --> skip one line in video ram and restart counter (BP = 0)
+
     ; bp = counter for one line
     ; (to know when to go to next line)
     mov bp, FRAME_WIDTH
@@ -963,7 +1060,7 @@ DrawSingleReg proc
     ; AX = reg value word in memory (value to convert)
     mov ax, cs:[bp]
     ; will be: CS:[IntValueStr] --> converted string
-    call ConvertIntToString
+    mConvertIntToString
 
     ; DS:[SI] --> reg value str
     ; (DS = CS)
@@ -1040,7 +1137,7 @@ DrawSingleFlag proc
     mov byte ptr bl, cs:[bp]
 
     ; cl = ascii code of a symbol
-    call ConvertHexDigitToAscii
+    mHexDigitToAscii
 
     ; al = ascii code
     ; ah = color (from arguments)
@@ -1053,107 +1150,6 @@ DrawSingleFlag proc
     ret
 
 DrawSingleFlag endp
-
-;--------------------------------------------------------------------------------
-; Short:   Converts integer (register value) into string in data at IntValueStr
-; In:      AX = value to convert
-; Out:     CS:[IntValueStr] = start of converted str
-; Destroy: AL, BL, CL, SI
-;--------------------------------------------------------------------------------
-
-ConvertIntToString proc
-
-    mov bx, cs
-    mov ds, bx
-    mov si, offset IntValueStr
-
-    push ax
-
-    ; al = ah (store in Little-endian)
-    mov al, ah
-
-    call ConvertByteToString
-
-    ; al = al (get the saved value)
-    pop ax
-
-    ; tail call --> ret of inside function will return from our function
-    jmp ConvertByteToString
-
-    ret
-
-ConvertIntToString endp
-
-;--------------------------------------------------------------------------------
-; Short:   Converts 1 byte in ascii str in hex and stores in data
-; Exp:     DS = segment with data
-; In:      DS:[SI] --> where to write data
-;          AL = value to write
-; Out:     SI += 2 (for wrote symbols)
-; Destroy: BL, CL
-;--------------------------------------------------------------------------------
-
-ConvertByteToString proc
-
-    ; store first High bits, then Low bits (Little-endian)
-
-    mov bl, al
-    ; get last 4 bits (high)
-    shr bl, 4
-
-    call ConvertHexDigitToAscii
-
-    mov ds:[si], cl
-    inc si
-
-    mov bl, al
-    ; get first 4 bits (low)
-    ; 0fh = lower byte mask 00001111b
-    and bl, 0fh
-
-    call ConvertHexDigitToAscii
-
-    mov ds:[si], cl
-    inc si
-
-    ret
-
-ConvertByteToString endp
-
-;--------------------------------------------------------------------------------
-; Short:   Converts given value of digit into an ascii symbol of a hex digit
-; In:      BL = value of hex digit
-; Out:     CL = ascii code of a digit in hex
-;--------------------------------------------------------------------------------
-
-ConvertHexDigitToAscii proc
-
-    ; cl will be ascii code
-    mov cl, bl
-
-    ; if value bigger than 16 --> error
-    cmp bl, 0fh
-    jg @@End
-
-    ; bl >= 10 --> represents in a letter
-    cmp bl, 0ah
-    jge @@NotDigit
-
-    ; if digit --> add '0' ascii code
-    add cl, '0'
-    jmp @@End
-
-@@NotDigit:
-
-    ; if letter --> add letter 'A' ascii code
-    ; - 10d to get shift from 'A'
-    add cl, ('A' - 10d)
-
-@@End:
-
-    ret
-
-ConvertHexDigitToAscii endp
 
 ;--------------------------------------------------------------------------------
 ; Short:   Draws data in vram (until the '$')

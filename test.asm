@@ -6,27 +6,31 @@ org 100h
 END_SCAN_CODE   equ 79d
 
 Start:
-        ; copy code to 0777h --> to set IP ~ 0777h
-        ; si --> dest
-        mov si, 0777h
-        ; di --> src
-        mov di, offset StartOfProgram
+        ; copy code to 9999h --> to set IP ~ 9999h
+
+        ; es:[di] --> dest
+        ; ES = CS
+        mov ax, cs
+        mov es, ax
+        mov di, 9999h
+        ; ds:[si] --> src
+        ; DS = CS
+        mov ax, cs
+        mov ds, ax
+        mov si, offset StartOfProgram
 
         ; cx = length of program
         mov cx, offset EndOfProgram
         mov ax, offset StartOfProgram
         sub cx, ax
 
-CopyNext:
-        ; AX = word from code src
-        mov ax, cs:[di]
-        ; word from code dest = AX
-        mov cs:[si], ax
-        ; go to next bytes
-        add si, 2
-        add di, 2
+        ; inc in case not div by 2
+        inc cx
+        ; cx = cx / 2 (moving by 2 bytes)
+        shr cx, 1
 
-        loop CopyNext
+        ; copy code
+        rep movsw
 
         ; set segments equal to 0DEDh
         ; DS, ES, SS (CS can not be touched)
@@ -46,8 +50,8 @@ CopyNext:
         mov bp, 7777h
         mov sp, 8888h
 
-        ; IP = 0777h (jmp to copied code)
-        mov ax, 0777h
+        ; IP = 9999h (jmp to copied code)
+        mov ax, 9999h
         jmp ax
 
 StartOfProgram:
