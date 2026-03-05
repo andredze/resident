@@ -1,33 +1,33 @@
-# Resident registers
+# Резидент
 
-Program makes a resident for a timer interrupt (IRQ 0)
-that dumps registers in a frame every tick.
+Программа выводит на экран значение всех регистров и флагов в рамке каждый тик таймера (активация/выключение рамки происходит по клавише)
+с помощью резидентов для прерывания таймера и клавиатуры
 
-Supposed to be ran on DOSBox
+Должна быть запущена на DOSBox-е
 
-# Build program
+## Компиляция программы
 ```powershell
     regs.bat
 ```
-or
+или
 ```powershell
     tasm /la regs.asm
     tlink /t regs.obj
 ```
 
-# Run program
+# Запуск программы
 
 ```powershell
     regs.com
 ```
 
-To see the registers --> press the '~' button (tilda)
+Нажатие '~'   --> включить показ рамки с регистрами
 
-To delete the frame  --> press the 'ESC' button (escape)
+Нажатие 'ESC' --> убрать показ рамки с регистрами
 
-## Example
+## Пример
 
-When program test.asm is ran:
+Если запущена программа test.com, получаемая при компиляции следующего кода "test.asm":
 
 ```asm
 .model tiny
@@ -106,11 +106,11 @@ end Start
 
 ![example](https://github.com/andredze/resident/raw/master/example.png)
 
-# Screen saves
-Program remembers the screen that was under the frame and refreshes it when the frame is closed (triple-buffering)
+# Буферизация экрана
+Программа сохраняет экран, находящийся за рамкой с помощью тройной буферизации. Таким образом, рамка не стирает изменения экрана, происходящие под ней
 
-When pressed '~'
+После нажатия '~'
 ![pressed](https://github.com/andredze/resident/raw/master/pressed.png)
 
-When pressed 'ESC'
+После нажатия 'ESC'
 ![closed](https://github.com/andredze/resident/raw/master/closed.png)
