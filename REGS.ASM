@@ -1298,9 +1298,9 @@ DrawHorizontalLine endp
 
 ;--------------------------------------------------------------------------------
 
-RegsFrameStyle FrameStyle <         \
+RegsFrameStyle FrameStyle <                     \
     (             (BRT_RED + GRAY_BG) * 100h),  \
-    (             GRAY_BG * 100h),  \
+    (                        GRAY_BG  * 100h),  \
     (LU_CORNER  + (BRT_RED + GRAY_BG) * 100h),  \
     (HORIZ_LINE + (BRT_RED + GRAY_BG) * 100h),  \
     (RU_CORNER  + (BRT_RED + GRAY_BG) * 100h),  \
