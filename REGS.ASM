@@ -144,7 +144,7 @@ Main endp
 ; Out:     CL = ascii code of a digit in hex
 ;--------------------------------------------------------------------------------
 
-mHexDigitToAscii macro
+mConvertHexDigitToAscii macro
 
     ; cl will be ascii code
     mov cl, bl
@@ -180,7 +180,7 @@ mConvertByteToString macro
     ; get last 4 bits (high)
     shr bl, 4
 
-    mHexDigitToAscii
+    mConvertHexDigitToAscii
 
     mov ds:[si], cl
     inc si
@@ -190,7 +190,7 @@ mConvertByteToString macro
     ; 0fh = lower byte mask 00001111b
     and bl, 0fh
 
-    mHexDigitToAscii
+    mConvertHexDigitToAscii
 
     mov ds:[si], cl
     inc si
@@ -1137,7 +1137,7 @@ DrawSingleFlag proc
     mov byte ptr bl, cs:[bp]
 
     ; cl = ascii code of a symbol
-    mHexDigitToAscii
+    mConvertHexDigitToAscii
 
     ; al = ascii code
     ; ah = color (from arguments)
