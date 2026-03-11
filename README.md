@@ -29,18 +29,20 @@
 
 Если запущена программа test.com, получаемая при компиляции следующего кода "test.asm"
 
-Программа выставляет значение регистров:<br>
-BX = 2222h<br>
-CX = 3333h<br>
-DX = 4444h<br>
-SI = 5555h<br>
-DI = 6666h<br>
-BP = 7777h<br>
-SP = 8888h<br>
-DS = 0DEDh<br>
-ES = 0DEDh<br>
-SS = 0DEDh<br>
-IP находится в порядке 9999h
+Программа выставляет значение регистров:
+| Регистр | Значение |
+| --- | --- |
+| BX  | 2222h |
+| CX  | 3333h |
+| DX  | 4444h |
+| SI  | 5555h |
+| DI  | 6666h |
+| BP  | 7777h |
+| SP  | 8888h |
+| DS  | 0DEDh |
+| ES  | 0DEDh |
+| SS  | 0DEDh |
+| IP  |находится около<br>9999h |
 
 ![example](https://github.com/andredze/resident/raw/master/example.png)
 
